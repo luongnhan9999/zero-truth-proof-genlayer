@@ -263,7 +263,8 @@ export default function App() {
       const client = createClient({
         chain: studionet,
         account: accounts[0] as `0x${string}`,
-        provider: provider
+        provider: provider,
+        endpoint: 'https://studio.genlayer.com/api'
       });
       
       setGenlayerClient(client);
@@ -300,7 +301,8 @@ export default function App() {
       
       // Instantiate read client to read states even if no wallet is connected
       const client = createClient({
-        chain: studionet
+        chain: studionet,
+        endpoint: 'https://studio.genlayer.com/api'
       });
       
       addLog(`[CONTRACT] Reading get_all_tasks() from ${contractAddress}...`);
