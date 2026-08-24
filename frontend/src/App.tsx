@@ -162,6 +162,50 @@ export default function App() {
     autoConnect();
   }, []);
 
+  // Listen to MetaMask account and chain changes automatically
+  useEffect(() => {
+    if (typeof window !== 'undefined' && (window as any).ethereum) {
+      const provider = (window as any).ethereum;
+      
+      const handleAccounts = async (accounts: string[]) => {
+        if (accounts.length > 0) {
+          const cleanAddr = accounts[0].toLowerCase();
+          addLog(`[WALLET] Account changed to: ${cleanAddr}`);
+          setWalletAddress(cleanAddr);
+          setWalletConnected(true);
+          
+          // Re-instantiate write client
+          const client = createClient({
+            chain: studionet,
+            account: cleanAddr as `0x${string}`,
+            provider: provider,
+            endpoint: 'https://studio.genlayer.com/api'
+          });
+          setGenlayerClient(client);
+          await fetchTasksFromContract();
+        } else {
+          // Disconnected
+          disconnectWallet();
+        }
+      };
+
+      const handleChain = () => {
+        addLog('[WALLET] Network chain changed. Reloading state...');
+        window.location.reload();
+      };
+
+      provider.on('accountsChanged', handleAccounts);
+      provider.on('chainChanged', handleChain);
+
+      return () => {
+        if (provider.removeListener) {
+          provider.removeListener('accountsChanged', handleAccounts);
+          provider.removeListener('chainChanged', handleChain);
+        }
+      };
+    }
+  }, []);
+
   // Convert GitHub/Gist URL to raw URLs to bypass basic CORS restrictions
   const getRawUrl = (url: string): string => {
     if (!url) return '';
