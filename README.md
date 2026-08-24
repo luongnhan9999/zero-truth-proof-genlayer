@@ -1,5 +1,8 @@
 # ZeroTruthProof: Autonomous Zero-Knowledge Circuit Audit & Formal Verification Escrow
 
+- **Vercel dApp Live URL:** [https://zero-truth-proof.vercel.app](https://zero-truth-proof.vercel.app)
+- **GitHub Repository:** [https://github.com/luongnhan9999/zeroTruthProof](https://github.com/luongnhan9999/zeroTruthProof)
+
 **ZeroTruthProof** is an intelligent escrow and autonomous arbitration protocol built on GenLayer. It automates the verification and payout process for Zero-Knowledge (ZK-SNARK / Circom / Halo2 / PlonK) circuit audits and formal verification bounty programs.
 
 ---
