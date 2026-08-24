@@ -65,11 +65,27 @@ export default function App() {
   
   // Creation Form State
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
   const [newTaskId, setNewTaskId] = useState('');
   const [newCircuitUrl, setNewCircuitUrl] = useState('');
-  const [newFramework, setNewFramework] = useState('Circom 2.1 / Groth16 / R1CS');
+  const [newFramework, setNewFramework] = useState('Circom 2.1');
+  const [newCompilerVersion, setNewCompilerVersion] = useState('v2.1.6');
+  const [newProvingSystem, setNewProvingSystem] = useState('Groth16');
+  const [newComplexity, setNewComplexity] = useState('15k constraints');
   const [newFocus, setNewFocus] = useState('');
   const [newEscrowAmount, setNewEscrowAmount] = useState('10'); // In GEN
+
+  // Auto-generate task ID from Project Name
+  useEffect(() => {
+    if (newProjectName) {
+      const generatedId = newProjectName
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '_')
+        .replace(/_+/g, '_')
+        .substring(0, 30) + '_' + Math.floor(100 + Math.random() * 900);
+      setNewTaskId(generatedId);
+    }
+  }, [newProjectName]);
   
   // Auditor Submit exploit Form State
   const [exploitUrl, setExploitUrl] = useState('');
@@ -192,6 +208,38 @@ export default function App() {
       setIsLoading(true);
       addLog('[WALLET] Requesting provider credentials...');
       const provider = (window as any).ethereum;
+      
+      // Prompt MetaMask to switch to Studionet (Chain ID 61999 / 0xf22f)
+      try {
+        await provider.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: '0xf22f' }],
+        });
+      } catch (switchError: any) {
+        if (switchError.code === 4902) {
+          try {
+            await provider.request({
+              method: 'wallet_addEthereumChain',
+              params: [
+                {
+                  chainId: '0xf22f',
+                  chainName: 'GenLayer StudioNet',
+                  rpcUrls: ['https://studio.genlayer.com/api'],
+                  nativeCurrency: {
+                    name: 'GEN',
+                    symbol: 'GEN',
+                    decimals: 18,
+                  },
+                  blockExplorerUrls: [],
+                },
+              ],
+            });
+          } catch (addError) {
+            console.error('Error adding network:', addError);
+          }
+        }
+      }
+
       const accounts = await provider.request({ method: 'eth_requestAccounts' });
       
       const client = createClient({
@@ -260,14 +308,32 @@ export default function App() {
     }
   };
 
+  // Helper parsing decimals to bigints safely
+  const parseUnits = (amount: string, decimals: number = 18): bigint => {
+    try {
+      const parts = amount.split('.');
+      let integer = parts[0] || '0';
+      let fraction = parts[1] || '';
+      fraction = fraction.padEnd(decimals, '0').slice(0, decimals);
+      return BigInt(integer + fraction);
+    } catch {
+      return 0n;
+    }
+  };
+
   // Helper formatting bigints
   const formatGenAmount = (weiStr: string) => {
     try {
       if (!weiStr || weiStr === '0') return '0';
       if (weiStr.length > 18) {
-        return (parseFloat(weiStr) / 1e18).toFixed(1) + ' GEN';
+        const integer = weiStr.slice(0, -18) || '0';
+        const fraction = weiStr.slice(-18).slice(0, 4); // Display up to 4 decimal places
+        const formatted = `${integer}.${fraction}`.replace(/\.?0+$/, '');
+        return `${formatted} GEN`;
+      } else {
+        const decimals = parseFloat(weiStr) / 1e18;
+        return `${decimals} GEN`;
       }
-      return weiStr + ' wei';
     } catch {
       return weiStr;
     }
@@ -285,7 +351,7 @@ export default function App() {
   // Action: Create Bounty (payable)
   const handleCreateBounty = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTaskId || !newCircuitUrl || !newFocus) {
+    if (!newTaskId || !newCircuitUrl || !newFocus || !newProjectName) {
       alert('Please fill out all fields.');
       return;
     }
@@ -295,7 +361,11 @@ export default function App() {
       return;
     }
 
-    const valueWei = String(parseFloat(newEscrowAmount) * 1e18);
+    const valueWei = parseUnits(newEscrowAmount);
+    
+    // Construct rich string representations to fit smart contract arguments
+    const circuit_framework = `${newFramework} ${newCompilerVersion} / ${newProvingSystem}`;
+    const constraint_focus = `${newFocus} (Complexity: ${newComplexity})`;
 
     try {
       setIsLoading(true);
@@ -304,8 +374,8 @@ export default function App() {
       const hash = await genlayerClient.writeContract({
         address: contractAddress as `0x${string}`,
         functionName: 'create_audit_bounty',
-        args: [newTaskId, newCircuitUrl, newFramework, newFocus],
-        value: BigInt(valueWei)
+        args: [newTaskId, newCircuitUrl, circuit_framework, constraint_focus],
+        value: valueWei
       });
       
       addLog(`[CHAIN TX] Broadcasted. Hash: ${hash}. Waiting for receipt confirmation...`);
@@ -319,6 +389,7 @@ export default function App() {
       setShowCreateModal(false);
       
       // Clear forms
+      setNewProjectName('');
       setNewTaskId('');
       setNewCircuitUrl('');
       setNewFocus('');
@@ -1169,7 +1240,7 @@ export default function App() {
       {/* CREATE BOUNTY MODAL */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#08080C] border border-purple-950 rounded-lg max-w-md w-full p-6 relative shadow-2xl">
+          <div className="bg-[#08080C] border border-purple-950 rounded-lg max-w-lg w-full p-6 relative shadow-2xl overflow-y-auto max-h-[90vh]">
             <div className="flex items-center justify-between border-b border-purple-950 pb-3 mb-4">
               <h3 className="font-mono text-sm font-bold text-purple-300 uppercase tracking-widest">
                 Create Audit Bounty Escrow
@@ -1183,16 +1254,29 @@ export default function App() {
             </div>
 
             <form onSubmit={handleCreateBounty} className="flex flex-col gap-4 text-xs font-mono">
-              <div>
-                <label className="text-[10px] text-slate-500 block mb-1 font-bold">TASK ID (UNIQUE KEY)</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g., zk_merkle_tree_circuit_02"
-                  value={newTaskId}
-                  onChange={(e) => setNewTaskId(e.target.value)}
-                  className="w-full bg-slate-950 border border-purple-950 rounded p-2 text-slate-300 focus:outline-none focus:border-purple-600"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] text-slate-500 block mb-1 font-bold">PROJECT NAME</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g., ZK Bridge Rollup"
+                    value={newProjectName}
+                    onChange={(e) => setNewProjectName(e.target.value)}
+                    className="w-full bg-slate-950 border border-purple-950 rounded p-2 text-slate-300 focus:outline-none focus:border-purple-600"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-500 block mb-1 font-bold">TASK ID (EDITABLE)</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g., zk_bridge_rollup_123"
+                    value={newTaskId}
+                    onChange={(e) => setNewTaskId(e.target.value)}
+                    className="w-full bg-slate-950 border border-purple-950 rounded p-2 text-slate-300 focus:outline-none focus:border-purple-600"
+                  />
+                </div>
               </div>
 
               <div>
@@ -1209,23 +1293,65 @@ export default function App() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] text-slate-500 block mb-1 font-bold">FRAMEWORK</label>
+                  <label className="text-[10px] text-slate-500 block mb-1 font-bold">FRAMEWORK TYPE</label>
                   <select
                     value={newFramework}
                     onChange={(e) => setNewFramework(e.target.value)}
                     className="w-full bg-slate-950 border border-purple-950 rounded p-2 text-slate-300 focus:outline-none focus:border-purple-600"
                   >
-                    <option>Circom 2.1 / Groth16 / R1CS</option>
-                    <option>Halo2 / Plonk</option>
-                    <option>Noir / Plonkish</option>
+                    <option>Circom</option>
+                    <option>Halo2</option>
+                    <option>Noir</option>
                     <option>Plonky2</option>
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] text-slate-500 block mb-1 font-bold">ESCROW DEPOSIT (GEN)</label>
+                  <label className="text-[10px] text-slate-500 block mb-1 font-bold">COMPILER VERSION</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g., v2.1.6 or v0.33.0"
+                    value={newCompilerVersion}
+                    onChange={(e) => setNewCompilerVersion(e.target.value)}
+                    className="w-full bg-slate-950 border border-purple-950 rounded p-2 text-slate-300 focus:outline-none focus:border-purple-600"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] text-slate-500 block mb-1 font-bold">PROVING SYSTEM</label>
+                  <select
+                    value={newProvingSystem}
+                    onChange={(e) => setNewProvingSystem(e.target.value)}
+                    className="w-full bg-slate-950 border border-purple-950 rounded p-2 text-slate-300 focus:outline-none focus:border-purple-600"
+                  >
+                    <option>Groth16</option>
+                    <option>PLONK</option>
+                    <option>PlonKish</option>
+                    <option>Honk</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-500 block mb-1 font-bold">COMPLEXITY / GATE COUNT</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g., 15k gates or 2^18 constraints"
+                    value={newComplexity}
+                    onChange={(e) => setNewComplexity(e.target.value)}
+                    className="w-full bg-slate-950 border border-purple-950 rounded p-2 text-slate-300 focus:outline-none focus:border-purple-600"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <label className="text-[10px] text-slate-500 block mb-1 font-bold">ESCROW DEPOSIT AMOUNT (GEN)</label>
                   <input
                     type="number"
-                    min="1"
+                    min="0.0001"
+                    step="any"
                     required
                     value={newEscrowAmount}
                     onChange={(e) => setNewEscrowAmount(e.target.value)}
@@ -1250,7 +1376,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 border border-slate-900 hover:border-slate-800 rounded font-semibold text-slate-400 transition"
+                  className="px-4 py-2 border border-slate-900 hover:border-slate-800 rounded font-semibold text-slate-400 transition cursor-pointer"
                 >
                   Cancel
                 </button>
