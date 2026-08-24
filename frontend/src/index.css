@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+@theme {
+  --color-quantum-noir: #08080c;
+  --color-zk-purple: #a855f7;
+  --color-laser-mint: #2dd4bf;
+  --color-under-amber: #fbbf24;
+  --color-violation-red: #f43f5e;
+  
+  --font-terminal: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+:root {
+  background-color: #08080c;
+  color: #f1f5f9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+body {
+  margin: 0;
+  background-color: #08080c;
+  background-image: 
+    linear-gradient(rgba(168, 85, 247, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(168, 85, 247, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-position: center;
+  min-height: 100vh;
+}
+
+/* Custom terminal glowing text and scrollbars */
+.glow-purple {
+  text-shadow: 0 0 10px rgba(168, 85, 247, 0.5), 0 0 20px rgba(168, 85, 247, 0.3);
+}
+
+.glow-mint {
+  text-shadow: 0 0 10px rgba(45, 212, 191, 0.5), 0 0 20px rgba(45, 212, 191, 0.3);
+}
+
+.glow-border-purple {
+  box-shadow: 0 0 15px rgba(168, 85, 247, 0.2);
+}
+
+.glow-border-mint {
+  box-shadow: 0 0 15px rgba(45, 212, 191, 0.2);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #08080c;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e1b4b;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a855f7;
+}
+
+/* Scanner line effect */
+.scanner-line {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #2dd4bf, transparent);
+  animation: scan 4s linear infinite;
+}
+
+@keyframes scan {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(300px); }
+  100% { transform: translateY(0); }
+}
