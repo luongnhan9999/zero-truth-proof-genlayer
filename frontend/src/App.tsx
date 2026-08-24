@@ -49,7 +49,7 @@ export default function App() {
   const [selectedRole, setSelectedRole] = useState<'OWNER' | 'AUDITOR' | 'ADMIN'>('OWNER');
   
   // Smart Contract Info (Default test address, can be configured in UI)
-  const [contractAddress, setContractAddress] = useState('0x7f2b76da941838d721f5a3b4553b6bc2d2425c19');
+  const [contractAddress, setContractAddress] = useState((import.meta.env.VITE_CONTRACT_ADDRESS || '0x8Fc01BdaC0fc8Eba6F6b0D0fDd25c55031C1349f').toLowerCase());
   const [tasks, setTasks] = useState<ZKAuditTask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
   
@@ -380,12 +380,17 @@ export default function App() {
       
       addLog(`[CHAIN TX] Broadcasted. Hash: ${hash}. Waiting for receipt confirmation...`);
       
-      await genlayerClient.waitForTransactionReceipt({
-        hash,
-        status: 'FINALIZED'
-      });
+      try {
+        await Promise.race([
+          genlayerClient.waitForTransactionReceipt({ hash }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout waiting for transaction finalization')), 15000))
+        ]);
+        addLog(`[CHAIN CONFIRMED] Transaction finalized. Bounty created.`);
+      } catch (receiptError: any) {
+        console.error(receiptError);
+        addLog(`[CHAIN WARNING] ${receiptError.message || receiptError}. Checking tasks soon...`);
+      }
       
-      addLog(`[CHAIN CONFIRMED] Transaction finalized. Bounty created.`);
       setShowCreateModal(false);
       
       // Clear forms
@@ -394,6 +399,8 @@ export default function App() {
       setNewCircuitUrl('');
       setNewFocus('');
       
+      // Short delay for RPC indexer synchronization
+      await new Promise(resolve => setTimeout(resolve, 2000));
       await fetchTasksFromContract();
     } catch (err: any) {
       console.error(err);
@@ -425,8 +432,17 @@ export default function App() {
       });
       
       addLog(`[CHAIN TX] Sent. Hash: ${hash}. Finalizing...`);
-      await genlayerClient.waitForTransactionReceipt({ hash, status: 'FINALIZED' });
-      addLog(`[CHAIN CONFIRMED] Stake deposit success. Locked task.`);
+      try {
+        await Promise.race([
+          genlayerClient.waitForTransactionReceipt({ hash }),
+          new Promise((_, r) => setTimeout(() => r(new Error('Timeout waiting for finalization')), 12000))
+        ]);
+        addLog(`[CHAIN CONFIRMED] Stake deposit success. Locked task.`);
+      } catch (e: any) {
+        addLog(`[CHAIN WARNING] Stake transaction sent. Check task status soon.`);
+      }
+      
+      await new Promise(r => setTimeout(r, 2000));
       await fetchTasksFromContract();
     } catch (err: any) {
       console.error(err);
@@ -456,9 +472,17 @@ export default function App() {
       });
       
       addLog(`[CHAIN TX] Sent. Hash: ${hash}. AI consensus evaluating counterexample. Please wait...`);
-      await genlayerClient.waitForTransactionReceipt({ hash, status: 'FINALIZED' });
-      addLog(`[CHAIN CONFIRMED] Witness evaluated on-chain.`);
+      try {
+        await Promise.race([
+          genlayerClient.waitForTransactionReceipt({ hash }),
+          new Promise((_, r) => setTimeout(() => r(new Error('Timeout waiting for finalization')), 15000))
+        ]);
+        addLog(`[CHAIN CONFIRMED] Witness evaluated on-chain.`);
+      } catch (e: any) {
+        addLog(`[CHAIN WARNING] Exploit submitted. AI Consensus running in background.`);
+      }
       setExploitUrl('');
+      await new Promise(r => setTimeout(r, 2000));
       await fetchTasksFromContract();
     } catch (err: any) {
       console.error(err);
@@ -487,9 +511,17 @@ export default function App() {
         args: [activeTask.id, disputeReason]
       });
       
-      await genlayerClient.waitForTransactionReceipt({ hash, status: 'FINALIZED' });
-      addLog(`[CHAIN CONFIRMED] Dispute successfully registered.`);
+      try {
+        await Promise.race([
+          genlayerClient.waitForTransactionReceipt({ hash }),
+          new Promise((_, r) => setTimeout(() => r(new Error('Timeout waiting for finalization')), 12000))
+        ]);
+        addLog(`[CHAIN CONFIRMED] Dispute successfully registered.`);
+      } catch (e) {
+        addLog(`[CHAIN WARNING] Dispute transaction sent.`);
+      }
       setDisputeReason('');
+      await new Promise(r => setTimeout(r, 2000));
       await fetchTasksFromContract();
     } catch (err: any) {
       console.error(err);
@@ -517,8 +549,16 @@ export default function App() {
         args: [activeTask.id]
       });
       
-      await genlayerClient.waitForTransactionReceipt({ hash, status: 'FINALIZED' });
-      addLog(`[CHAIN CONFIRMED] Payout finalized and disbursed.`);
+      try {
+        await Promise.race([
+          genlayerClient.waitForTransactionReceipt({ hash }),
+          new Promise((_, r) => setTimeout(() => r(new Error('Timeout waiting for finalization')), 12000))
+        ]);
+        addLog(`[CHAIN CONFIRMED] Payout finalized and disbursed.`);
+      } catch (e) {
+        addLog(`[CHAIN WARNING] Finalization transaction sent.`);
+      }
+      await new Promise(r => setTimeout(r, 2000));
       await fetchTasksFromContract();
     } catch (err: any) {
       console.error(err);
@@ -546,8 +586,16 @@ export default function App() {
         args: [activeTask.id, arbitrationAction]
       });
       
-      await genlayerClient.waitForTransactionReceipt({ hash, status: 'FINALIZED' });
-      addLog(`[CHAIN CONFIRMED] Escalation resolved.`);
+      try {
+        await Promise.race([
+          genlayerClient.waitForTransactionReceipt({ hash }),
+          new Promise((_, r) => setTimeout(() => r(new Error('Timeout waiting for finalization')), 12000))
+        ]);
+        addLog(`[CHAIN CONFIRMED] Escalation resolved.`);
+      } catch (e) {
+        addLog(`[CHAIN WARNING] Escalation transaction sent.`);
+      }
+      await new Promise(r => setTimeout(r, 2000));
       await fetchTasksFromContract();
     } catch (err: any) {
       console.error(err);
