@@ -144,6 +144,24 @@ export default function App() {
     return () => clearInterval(timer);
   }, [tasks]);
 
+  // Auto-connect wallet if already authorized in MetaMask and user did not disconnect manually
+  useEffect(() => {
+    const autoConnect = async () => {
+      if (localStorage.getItem('wallet_previously_connected') === 'true' && typeof window !== 'undefined' && (window as any).ethereum) {
+        const provider = (window as any).ethereum;
+        try {
+          const accounts = await provider.request({ method: 'eth_accounts' });
+          if (accounts && accounts.length > 0) {
+            await connectWallet();
+          }
+        } catch (e) {
+          console.error('Auto-connect failed:', e);
+        }
+      }
+    };
+    autoConnect();
+  }, []);
+
   // Convert GitHub/Gist URL to raw URLs to bypass basic CORS restrictions
   const getRawUrl = (url: string): string => {
     if (!url) return '';
@@ -253,6 +271,8 @@ export default function App() {
       setWalletConnected(true);
       setWalletBalance('12.5k'); // Display generic balance indicator
       
+      localStorage.setItem('wallet_previously_connected', 'true');
+      
       addLog(`[WALLET] Wallet successfully connected to Studionet. Address: ${accounts[0]}`);
       await fetchTasksFromContract();
     } catch (err: any) {
@@ -268,6 +288,7 @@ export default function App() {
     setWalletConnected(false);
     setWalletAddress('');
     setGenlayerClient(null);
+    localStorage.removeItem('wallet_previously_connected');
     addLog('[WALLET] Wallet disconnected.');
   };
 
