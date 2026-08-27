@@ -256,10 +256,10 @@ FOCUS AREA / CONSTRAINT SPECIFICATION:
 {focus_str}
 
 ORIGINAL TARGET CIRCUIT CODE:
-{c_text[:2500]}
+{c_text[:35000]}
 
 SUBMITTED MATHEMATICAL COUNTEREXAMPLE / POC WITNESS:
-{e_text[:2500]}
+{e_text[:35000]}
 
 DECISION FRAMEWORK:
 - APPROVED: The counterexample conclusively demonstrates a critical flaw (under-constrained signal, soundness break, fake proof generation, or missing polynomial constraint).
