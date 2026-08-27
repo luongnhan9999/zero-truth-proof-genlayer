@@ -13,9 +13,9 @@ class ZKAuditTask:
     auditor_stake: bigint
     status: str            # OPEN, IN_PROGRESS, AWAITING_PAYOUT, NEEDS_REVISION, DISPUTED, ESCALATED, CLOSED
     circuit_url: str       # URL to original Circom/Halo2/Noir circuit source code
-    circuit_hash: str      # SHA-256 hash of the circuit source code
+    circuit_hash: str      # SHA-256 hash of the target circuit file
     proof_of_exploit_url: str # URL to mathematical counterexample / PoC witness script
-    proof_hash: str        # SHA-256 hash of the exploit witness script
+    exploit_hash: str      # SHA-256 hash of the submitted witness/exploit script
     circuit_framework: str # e.g., "Circom 2.1 / Groth16 / R1CS"
     constraint_focus: str  # e.g., "Under-constrained signals, Missing quadratic constraints"
     verdict: str           # APPROVED, PARTIAL, REFUND, ESCALATE
@@ -96,8 +96,8 @@ class Contract(gl.Contract):
             raise UserError("Escrow bounty reward must be strictly positive")
         if not circuit_url.startswith("http"):
             raise UserError("Valid circuit repository HTTP/HTTPS URL required")
-        if not circuit_hash.strip():
-            raise UserError("Valid circuit source cryptographic hash required")
+        if not circuit_hash or len(circuit_hash.strip()) != 64:
+            raise UserError("Valid SHA-256 target circuit hash requirement not met")
 
         caller = str(gl.message.sender_address).lower()
         
@@ -108,9 +108,9 @@ class Contract(gl.Contract):
             auditor_stake=bigint(0),
             status="OPEN",
             circuit_url=circuit_url.strip(),
-            circuit_hash=circuit_hash.strip(),
+            circuit_hash=circuit_hash.strip().lower(),
             proof_of_exploit_url="",
-            proof_hash="",
+            exploit_hash="",
             circuit_framework=circuit_framework.strip(),
             constraint_focus=constraint_focus.strip(),
             verdict="NONE",
@@ -145,7 +145,7 @@ class Contract(gl.Contract):
         self.tasks[task_id] = task
 
     @gl.public.write
-    def submit_counterexample(self, task_id: str, proof_of_exploit_url: str, proof_hash: str) -> None:
+    def submit_counterexample(self, task_id: str, proof_of_exploit_url: str, exploit_hash: str) -> None:
         """Auditor submits PoC counterexample demonstrating circuit constraint bypass."""
         if task_id not in self.tasks:
             raise UserError("Task not found")
@@ -158,92 +158,78 @@ class Contract(gl.Contract):
             raise UserError("Task is not ready for counterexample submission")
         if not proof_of_exploit_url.startswith("http"):
             raise UserError("Valid counterexample HTTP/HTTPS URL required")
-        if not proof_hash.strip():
-            raise UserError("Valid counterexample cryptographic hash required")
+        if not exploit_hash or len(exploit_hash.strip()) != 64:
+            raise UserError("Valid SHA-256 exploit witness hash requirement not met")
 
         task.proof_of_exploit_url = proof_of_exploit_url.strip()
-        task.proof_hash = proof_hash.strip()
+        task.exploit_hash = exploit_hash.strip().lower()
         task.attempts += bigint(1)
         
         circuit_str = task.circuit_url
-        circuit_hash_expected = task.circuit_hash
         exploit_str = task.proof_of_exploit_url
-        exploit_hash_expected = task.proof_hash
         framework_str = task.circuit_framework
         focus_str = task.constraint_focus
 
         def leader_fn() -> dict:
-            # 1. Anti-Rugpull Guard: Check circuit source endpoint
+            # 1. Fetch & Verify Target Circuit Code Integrity
             try:
                 c_res = gl.nondet.web.render(circuit_str, mode="text")
                 c_text = str(c_res)
                 if any(err in c_text[:400].lower() for err in ["404 not found", "error 404", "not found"]):
                     return {"verdict": "ESCALATE", "confidence": 100, "reason": "Circuit source URL is 404; escrow held to protect auditor."}
+                
+                # Check SHA256 integrity
+                import hashlib
+                c_hash_computed = hashlib.sha256(c_text.encode('utf-8')).hexdigest().lower()
+                if c_hash_computed != task.circuit_hash:
+                    return {"verdict": "ESCALATE", "confidence": 100, "reason": f"Circuit integrity check failed. Expected: {task.circuit_hash}, Computed: {c_hash_computed}"}
             except Exception as e:
                 return {"verdict": "ESCALATE", "confidence": 100, "reason": f"Circuit fetch failed: {str(e)}"}
 
-            # 2. Anti-Spam Guard: Check PoC counterexample endpoint
+            # 2. Fetch & Verify Counterexample Exploit Code Integrity
             try:
                 e_res = gl.nondet.web.render(exploit_str, mode="text")
                 e_text = str(e_res)
                 if any(err in e_text[:400].lower() for err in ["404 not found", "error 404", "not found"]):
                     return {"verdict": "REFUND", "confidence": 100, "reason": "Counterexample URL is 404 or empty."}
+                
+                # Check SHA256 integrity
+                import hashlib
+                e_hash_computed = hashlib.sha256(e_text.encode('utf-8')).hexdigest().lower()
+                if e_hash_computed != task.exploit_hash:
+                    return {"verdict": "REFUND", "confidence": 100, "reason": f"Exploit witness integrity check failed. Expected: {task.exploit_hash}, Computed: {e_hash_computed}"}
             except Exception as e:
                 return {"verdict": "REFUND", "confidence": 100, "reason": f"Counterexample fetch failed: {str(e)}"}
 
-            # 3. Deterministic Hashing Checks (Reproducibility & Tamper Proofing)
-            import hashlib
-            computed_c_hash = hashlib.sha256(c_text.encode('utf-8')).hexdigest()
-            if computed_c_hash != circuit_hash_expected:
-                return {
-                    "verdict": "ESCALATE", 
-                    "confidence": 100, 
-                    "reason": f"Deterministic check failed: Circuit source code has changed. Expected hash {circuit_hash_expected}, got {computed_c_hash}."
-                }
-
-            computed_e_hash = hashlib.sha256(e_text.encode('utf-8')).hexdigest()
-            if computed_e_hash != exploit_hash_expected:
-                return {
-                    "verdict": "REFUND", 
-                    "confidence": 100, 
-                    "reason": f"Deterministic check failed: Exploit witness code has changed. Expected hash {exploit_hash_expected}, got {computed_e_hash}."
-                }
-
-            # 4. Deterministic Pre-validation Parser (Check compile/signals structure)
-            is_circom = "circom" in framework_str.lower() or "circom" in c_text.lower()
-            if is_circom:
-                # Compile Check 1: Pragma line
-                if "pragma circom 2" not in c_text.lower():
-                    return {
-                        "verdict": "REFUND",
-                        "confidence": 100,
-                        "reason": "Deterministic pre-validation failed: Missing 'pragma circom 2' template version."
-                    }
-                # Compile Check 2: Template instantiation
-                if "template" not in c_text.lower():
-                    return {
-                        "verdict": "REFUND",
-                        "confidence": 100,
-                        "reason": "Deterministic pre-validation failed: Target code does not declare a valid template structure."
-                    }
+            # 3. Deterministic Compile Check & Signal/Proof Syntax Checking
+            if "circom" in framework_str.lower():
+                if "pragma circom" not in c_text:
+                    return {"verdict": "ESCALATE", "confidence": 100, "reason": "Deterministic check: Missing 'pragma circom' directive in circuit code."}
+                if "template" not in c_text:
+                    return {"verdict": "ESCALATE", "confidence": 100, "reason": "Deterministic check: No template definition found in target Circom circuit."}
+                if "signal input" not in c_text:
+                    return {"verdict": "ESCALATE", "confidence": 100, "reason": "Deterministic check: No signal inputs found in target Circom circuit."}
                 
-                # Proof Check 3: Parse declared inputs/outputs and verify exploit references them
                 import re
-                signals = re.findall(r'signal\s+(?:input|output|private)?\s*([a-zA-Z0-9_]+)', c_text)
-                if not signals:
-                    return {
-                        "verdict": "REFUND",
-                        "confidence": 100,
-                        "reason": "Deterministic pre-validation failed: No signals detected in the target circuit code."
-                    }
+                inputs = re.findall(r"signal\s+input\s+([a-zA-Z0-9_]+)", c_text)
+                if not inputs:
+                    return {"verdict": "ESCALATE", "confidence": 100, "reason": "Deterministic check: Failed to parse input signals from circuit code."}
                 
-                has_ref = any(sig in e_text for sig in signals)
-                if not has_ref:
-                    return {
-                        "verdict": "REFUND",
-                        "confidence": 100,
-                        "reason": f"Deterministic pre-validation failed: Submitted exploit has no references to target circuit signals ({', '.join(signals[:5])}...)."
-                    }
+                # Exploit must reference/assign values or test cases for at least one input signal
+                found_ref = False
+                for inp in inputs:
+                    if inp in e_text:
+                        found_ref = True
+                        break
+                if not found_ref:
+                    return {"verdict": "REFUND", "confidence": 100, "reason": f"Deterministic check: Exploit witness does not reference any circuit input signals (Expected one of: {', '.join(inputs)})."}
+                
+                # Must contain some constraint operators
+                if not any(op in c_text for op in ["<==", "==>", "==="]):
+                    return {"verdict": "ESCALATE", "confidence": 100, "reason": "Deterministic check: No constraints operator found in target circuit."}
+
+            if len(e_text.strip()) < 20:
+                return {"verdict": "REFUND", "confidence": 100, "reason": "Deterministic check: Exploit witness script code too short."}
 
             prompt = f"""
 You are a Principal Zero-Knowledge Cryptographer & Formal Circuit Verification Judge on GenLayer.
@@ -256,10 +242,10 @@ FOCUS AREA / CONSTRAINT SPECIFICATION:
 {focus_str}
 
 ORIGINAL TARGET CIRCUIT CODE:
-{c_text[:35000]}
+{c_text[:2500]}
 
 SUBMITTED MATHEMATICAL COUNTEREXAMPLE / POC WITNESS:
-{e_text[:35000]}
+{e_text[:2500]}
 
 DECISION FRAMEWORK:
 - APPROVED: The counterexample conclusively demonstrates a critical flaw (under-constrained signal, soundness break, fake proof generation, or missing polynomial constraint).
@@ -434,7 +420,7 @@ Respond ONLY with valid JSON:
                     "circuit_url": t.circuit_url,
                     "circuit_hash": t.circuit_hash,
                     "proof_of_exploit_url": t.proof_of_exploit_url,
-                    "proof_hash": t.proof_hash,
+                    "exploit_hash": t.exploit_hash,
                     "circuit_framework": t.circuit_framework,
                     "constraint_focus": t.constraint_focus,
                     "verdict": t.verdict,
