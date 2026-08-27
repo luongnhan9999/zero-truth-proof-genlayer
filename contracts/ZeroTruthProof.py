@@ -13,7 +13,9 @@ class ZKAuditTask:
     auditor_stake: bigint
     status: str            # OPEN, IN_PROGRESS, AWAITING_PAYOUT, NEEDS_REVISION, DISPUTED, ESCALATED, CLOSED
     circuit_url: str       # URL to original Circom/Halo2/Noir circuit source code
+    circuit_hash: str      # SHA-256 hash of the circuit source code
     proof_of_exploit_url: str # URL to mathematical counterexample / PoC witness script
+    proof_hash: str        # SHA-256 hash of the exploit witness script
     circuit_framework: str # e.g., "Circom 2.1 / Groth16 / R1CS"
     constraint_focus: str  # e.g., "Under-constrained signals, Missing quadratic constraints"
     verdict: str           # APPROVED, PARTIAL, REFUND, ESCALATE
@@ -82,6 +84,7 @@ class Contract(gl.Contract):
         self,
         task_id: str,
         circuit_url: str,
+        circuit_hash: str,
         circuit_framework: str,
         constraint_focus: str
     ) -> None:
@@ -93,6 +96,8 @@ class Contract(gl.Contract):
             raise UserError("Escrow bounty reward must be strictly positive")
         if not circuit_url.startswith("http"):
             raise UserError("Valid circuit repository HTTP/HTTPS URL required")
+        if not circuit_hash.strip():
+            raise UserError("Valid circuit source cryptographic hash required")
 
         caller = str(gl.message.sender_address).lower()
         
@@ -103,7 +108,9 @@ class Contract(gl.Contract):
             auditor_stake=bigint(0),
             status="OPEN",
             circuit_url=circuit_url.strip(),
+            circuit_hash=circuit_hash.strip(),
             proof_of_exploit_url="",
+            proof_hash="",
             circuit_framework=circuit_framework.strip(),
             constraint_focus=constraint_focus.strip(),
             verdict="NONE",
@@ -138,7 +145,7 @@ class Contract(gl.Contract):
         self.tasks[task_id] = task
 
     @gl.public.write
-    def submit_counterexample(self, task_id: str, proof_of_exploit_url: str) -> None:
+    def submit_counterexample(self, task_id: str, proof_of_exploit_url: str, proof_hash: str) -> None:
         """Auditor submits PoC counterexample demonstrating circuit constraint bypass."""
         if task_id not in self.tasks:
             raise UserError("Task not found")
@@ -151,12 +158,17 @@ class Contract(gl.Contract):
             raise UserError("Task is not ready for counterexample submission")
         if not proof_of_exploit_url.startswith("http"):
             raise UserError("Valid counterexample HTTP/HTTPS URL required")
+        if not proof_hash.strip():
+            raise UserError("Valid counterexample cryptographic hash required")
 
         task.proof_of_exploit_url = proof_of_exploit_url.strip()
+        task.proof_hash = proof_hash.strip()
         task.attempts += bigint(1)
         
         circuit_str = task.circuit_url
+        circuit_hash_expected = task.circuit_hash
         exploit_str = task.proof_of_exploit_url
+        exploit_hash_expected = task.proof_hash
         framework_str = task.circuit_framework
         focus_str = task.constraint_focus
 
@@ -178,6 +190,60 @@ class Contract(gl.Contract):
                     return {"verdict": "REFUND", "confidence": 100, "reason": "Counterexample URL is 404 or empty."}
             except Exception as e:
                 return {"verdict": "REFUND", "confidence": 100, "reason": f"Counterexample fetch failed: {str(e)}"}
+
+            # 3. Deterministic Hashing Checks (Reproducibility & Tamper Proofing)
+            import hashlib
+            computed_c_hash = hashlib.sha256(c_text.encode('utf-8')).hexdigest()
+            if computed_c_hash != circuit_hash_expected:
+                return {
+                    "verdict": "ESCALATE", 
+                    "confidence": 100, 
+                    "reason": f"Deterministic check failed: Circuit source code has changed. Expected hash {circuit_hash_expected}, got {computed_c_hash}."
+                }
+
+            computed_e_hash = hashlib.sha256(e_text.encode('utf-8')).hexdigest()
+            if computed_e_hash != exploit_hash_expected:
+                return {
+                    "verdict": "REFUND", 
+                    "confidence": 100, 
+                    "reason": f"Deterministic check failed: Exploit witness code has changed. Expected hash {exploit_hash_expected}, got {computed_e_hash}."
+                }
+
+            # 4. Deterministic Pre-validation Parser (Check compile/signals structure)
+            is_circom = "circom" in framework_str.lower() or "circom" in c_text.lower()
+            if is_circom:
+                # Compile Check 1: Pragma line
+                if "pragma circom 2" not in c_text.lower():
+                    return {
+                        "verdict": "REFUND",
+                        "confidence": 100,
+                        "reason": "Deterministic pre-validation failed: Missing 'pragma circom 2' template version."
+                    }
+                # Compile Check 2: Template instantiation
+                if "template" not in c_text.lower():
+                    return {
+                        "verdict": "REFUND",
+                        "confidence": 100,
+                        "reason": "Deterministic pre-validation failed: Target code does not declare a valid template structure."
+                    }
+                
+                # Proof Check 3: Parse declared inputs/outputs and verify exploit references them
+                import re
+                signals = re.findall(r'signal\s+(?:input|output|private)?\s*([a-zA-Z0-9_]+)', c_text)
+                if not signals:
+                    return {
+                        "verdict": "REFUND",
+                        "confidence": 100,
+                        "reason": "Deterministic pre-validation failed: No signals detected in the target circuit code."
+                    }
+                
+                has_ref = any(sig in e_text for sig in signals)
+                if not has_ref:
+                    return {
+                        "verdict": "REFUND",
+                        "confidence": 100,
+                        "reason": f"Deterministic pre-validation failed: Submitted exploit has no references to target circuit signals ({', '.join(signals[:5])}...)."
+                    }
 
             prompt = f"""
 You are a Principal Zero-Knowledge Cryptographer & Formal Circuit Verification Judge on GenLayer.
@@ -366,7 +432,9 @@ Respond ONLY with valid JSON:
                     "auditor_stake": str(t.auditor_stake),
                     "status": t.status,
                     "circuit_url": t.circuit_url,
+                    "circuit_hash": t.circuit_hash,
                     "proof_of_exploit_url": t.proof_of_exploit_url,
+                    "proof_hash": t.proof_hash,
                     "circuit_framework": t.circuit_framework,
                     "constraint_focus": t.constraint_focus,
                     "verdict": t.verdict,

@@ -30,7 +30,9 @@ interface ZKAuditTask {
   auditor_stake: string;
   status: 'OPEN' | 'IN_PROGRESS' | 'AWAITING_PAYOUT' | 'NEEDS_REVISION' | 'DISPUTED' | 'ESCALATED' | 'CLOSED';
   circuit_url: string;
+  circuit_hash: string;
   proof_of_exploit_url: string;
+  proof_hash: string;
   circuit_framework: string;
   constraint_focus: string;
   verdict: 'NONE' | 'APPROVED' | 'PARTIAL' | 'REFUND' | 'ESCALATE';
@@ -41,6 +43,20 @@ interface ZKAuditTask {
   disputed_at: string;
 }
 
+// Helper to compute SHA-256 hash of a string using Web Crypto API
+const computeSha256 = async (text: string): Promise<string> => {
+  try {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(text);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (err) {
+    console.error('SHA-256 computation failed:', err);
+    return '';
+  }
+};
+
 export default function App() {
   // Connection states
   const [walletConnected, setWalletConnected] = useState(false);
@@ -49,7 +65,7 @@ export default function App() {
   const [selectedRole, setSelectedRole] = useState<'OWNER' | 'AUDITOR' | 'ADMIN'>('OWNER');
   
   // Smart Contract Info (Default test address, can be configured in UI)
-  const [contractAddress, setContractAddress] = useState(import.meta.env.VITE_CONTRACT_ADDRESS || '0x8Fc01BdaC0fc8Eba6F6b0D0fDd25c55031C1349f');
+  const [contractAddress, setContractAddress] = useState(import.meta.env.VITE_CONTRACT_ADDRESS || '0x808d6AB47c12B1Ae2675a7efbc59Bb6D3d6bdF15');
   const [tasks, setTasks] = useState<ZKAuditTask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
   
@@ -74,6 +90,7 @@ export default function App() {
   const [newComplexity, setNewComplexity] = useState('15k constraints');
   const [newFocus, setNewFocus] = useState('');
   const [newEscrowAmount, setNewEscrowAmount] = useState('10'); // In GEN
+  const [newCircuitHash, setNewCircuitHash] = useState('');
 
   // Auto-generate task ID from Project Name
   useEffect(() => {
@@ -89,6 +106,7 @@ export default function App() {
   
   // Auditor Submit exploit Form State
   const [exploitUrl, setExploitUrl] = useState('');
+  const [exploitHash, setExploitHash] = useState('');
   
   // Dispute & Payout States
   const [disputeReason, setDisputeReason] = useState('');
@@ -418,8 +436,8 @@ export default function App() {
   // Action: Create Bounty (payable)
   const handleCreateBounty = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTaskId || !newCircuitUrl || !newFocus || !newProjectName) {
-      alert('Please fill out all fields.');
+    if (!newTaskId || !newCircuitUrl || !newFocus || !newProjectName || !newCircuitHash) {
+      alert('Please fill out all fields, including the cryptographic Circuit Source Hash.');
       return;
     }
 
@@ -441,7 +459,7 @@ export default function App() {
       const hash = await genlayerClient.writeContract({
         address: contractAddress as `0x${string}`,
         functionName: 'create_audit_bounty',
-        args: [newTaskId, newCircuitUrl, circuit_framework, constraint_focus],
+        args: [newTaskId, newCircuitUrl, newCircuitHash.trim(), circuit_framework, constraint_focus],
         value: valueWei
       });
       
@@ -464,6 +482,7 @@ export default function App() {
       setNewProjectName('');
       setNewTaskId('');
       setNewCircuitUrl('');
+      setNewCircuitHash('');
       setNewFocus('');
       
       // Short delay for RPC indexer synchronization
@@ -522,7 +541,10 @@ export default function App() {
   // Action: Submit Counterexample
   const handleSubmitCounterexample = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeTask || !exploitUrl) return;
+    if (!activeTask || !exploitUrl || !exploitHash) {
+      alert('Please fill out both the Exploit URL and the Cryptographic Hash.');
+      return;
+    }
     if (!walletConnected || !genlayerClient) {
       alert('Connect wallet first.');
       return;
@@ -535,7 +557,7 @@ export default function App() {
       const hash = await genlayerClient.writeContract({
         address: contractAddress as `0x${string}`,
         functionName: 'submit_counterexample',
-        args: [activeTask.id, exploitUrl]
+        args: [activeTask.id, exploitUrl, exploitHash.trim()]
       });
       
       addLog(`[CHAIN TX] Sent. Hash: ${hash}. AI consensus evaluating counterexample. Please wait...`);
@@ -549,6 +571,7 @@ export default function App() {
         addLog(`[CHAIN WARNING] Exploit submitted. AI Consensus running in background.`);
       }
       setExploitUrl('');
+      setExploitHash('');
       await new Promise(r => setTimeout(r, 2000));
       await fetchTasksFromContract();
     } catch (err: any) {
@@ -1182,38 +1205,68 @@ export default function App() {
                             <p className="text-slate-300">
                               Submit proof of mathematical exploit. Provide a URL pointing to the proof witness script or counterexample representation.
                             </p>
-                            <span className="text-[10px] text-amber-400 bg-amber-950/20 px-2 py-0.5 border border-amber-900/40 rounded">
+                        <span className="text-[10px] text-amber-400 bg-amber-950/20 px-2 py-0.5 border border-amber-900/40 rounded">
                               ATTEMPT: {activeTask.attempts} / 2 MAX
                             </span>
                           </div>
                           
-                          <form onSubmit={handleSubmitCounterexample} className="flex flex-wrap gap-3 items-end">
-                            <div className="flex-1 min-w-[280px]">
-                              <label className="text-[10px] text-slate-500 block font-bold mb-1">POC / WITNESS EXPLOIT URL</label>
-                              <input
-                                type="url"
-                                required
-                                value={exploitUrl}
-                                onChange={(e) => setExploitUrl(e.target.value)}
-                                placeholder="https://github.com/zk-exploit/fake_witness.js"
-                                className="w-full bg-slate-950 border border-purple-950/80 rounded p-2 text-xs font-mono focus:outline-none focus:border-purple-600"
-                              />
+                          <form onSubmit={handleSubmitCounterexample} className="flex flex-col gap-4 font-mono">
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                              <div>
+                                <label className="text-[10px] text-slate-500 block font-bold mb-1">POC / WITNESS EXPLOIT URL</label>
+                                <input
+                                  type="url"
+                                  required
+                                  value={exploitUrl}
+                                  onChange={(e) => setExploitUrl(e.target.value)}
+                                  placeholder="https://github.com/zk-exploit/fake_witness.js"
+                                  className="w-full bg-slate-950 border border-purple-950/80 rounded p-2 text-xs font-mono focus:outline-none focus:border-purple-600"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-slate-500 block font-bold mb-1">EXPLOIT WITNESS HASH (SHA-256)</label>
+                                <input
+                                  type="text"
+                                  required
+                                  value={exploitHash}
+                                  onChange={(e) => setExploitHash(e.target.value)}
+                                  placeholder="e.g., e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                                  className="w-full bg-slate-950 border border-purple-950/80 rounded p-2 text-xs font-mono focus:outline-none focus:border-purple-600"
+                                />
+                              </div>
                             </div>
-                            <button
-                              type="submit"
-                              disabled={isLoading || !walletConnected}
-                              className="px-5 py-2 bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 hover:border-emerald-600 text-emerald-200 rounded font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                            >
-                              {isLoading ? (
-                                <>
-                                  <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" /> Processing...
-                                </>
-                              ) : (
-                                <>
-                                  <Play className="w-4 h-4 text-emerald-400" /> Submit Exploit URL
-                                </>
-                              )}
-                            </button>
+
+                            <div className="grid grid-cols-1 gap-3">
+                              <div>
+                                <label className="text-[10px] text-slate-500 block mb-1 font-bold">AUTO-COMPUTE HASH (PASTE EXPLOIT CODE BELOW)</label>
+                                <textarea
+                                  placeholder="Paste your exploit proof script / witness code here to automatically calculate and populate its SHA-256 hash..."
+                                  onChange={async (e) => {
+                                    const hash = await computeSha256(e.target.value);
+                                    setExploitHash(hash);
+                                  }}
+                                  className="w-full h-16 bg-slate-950 border border-purple-950/85 rounded p-2 text-slate-400 focus:outline-none focus:border-purple-600 resize-none font-mono text-[10px]"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="flex justify-end">
+                              <button
+                                type="submit"
+                                disabled={isLoading || !walletConnected}
+                                className="px-5 py-2 bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 hover:border-emerald-600 text-emerald-200 rounded font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                              >
+                                {isLoading ? (
+                                  <>
+                                    <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" /> Processing...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Play className="w-4 h-4 text-emerald-400" /> Submit Exploit URL
+                                  </>
+                                )}
+                              </button>
+                            </div>
                           </form>
                           {!walletConnected && (
                             <span className="text-[10px] text-rose-400 block">Connect your wallet to submit.</span>
@@ -1484,6 +1537,33 @@ export default function App() {
                   value={newFocus}
                   onChange={(e) => setNewFocus(e.target.value)}
                   className="w-full bg-slate-950 border border-purple-950 rounded p-2 text-slate-300 focus:outline-none focus:border-purple-600"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-500 block mb-1 font-bold">CIRCUIT SOURCE CODE HASH (SHA-256)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g., e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                  value={newCircuitHash}
+                  onChange={(e) => setNewCircuitHash(e.target.value)}
+                  className="w-full bg-slate-950 border border-purple-950 rounded p-2 text-slate-300 focus:outline-none focus:border-purple-600 font-mono text-[10px]"
+                />
+                <span className="text-[9px] text-slate-600 block mt-0.5">
+                  Pinning the hash ensures the original circuit code cannot be changed.
+                </span>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-500 block mb-1 font-bold">AUTO-COMPUTE HASH (PASTE CIRCUIT CODE BELOW)</label>
+                <textarea
+                  placeholder="Paste your .circom target circuit code here to automatically calculate and populate its SHA-256 hash..."
+                  onChange={async (e) => {
+                    const hash = await computeSha256(e.target.value);
+                    setNewCircuitHash(hash);
+                  }}
+                  className="w-full h-16 bg-slate-950 border border-purple-950 rounded p-2 text-slate-400 focus:outline-none focus:border-purple-600 resize-none font-mono text-[10px]"
                 />
               </div>
 

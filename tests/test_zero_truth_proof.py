@@ -95,9 +95,11 @@ class TestZeroTruthProofExecutionSuite(unittest.TestCase):
         self.tid = "zk_merkle_tree_circuit_01"
         self.gl.message.sender_address = self.owner
         self.gl.message.value = MockBigInt(3000)
+        self.circuit_hash = "e352ef43c39f150821c22d7a22ebbe7f4d89608cd8be610738222b404cb5359a"
         self.contract.create_audit_bounty(
             self.tid,
             "https://github.com/zk-protocol/circuits/merkle.circom",
+            self.circuit_hash,
             "Circom 2.1.6 / Groth16",
             "Under-constrained intermediate path signals allowing root forging"
         )
@@ -115,12 +117,24 @@ class TestZeroTruthProofExecutionSuite(unittest.TestCase):
         self.gl.message.value = MockBigInt(600)
         self.contract.accept_audit_task(self.tid)
 
-        self.gl.nondet.web.render = lambda url, mode="text": "Circom circuit and PoC witness proof code"
+        circuit_mock_text = "pragma circom 2.0.0; template MerkleProof() { signal input path_index; }"
+        exploit_mock_text = "Exploit witness script setting path_index to fake value"
+
+        self.gl.nondet.web.render = lambda url, mode="text": (
+            circuit_mock_text if "merkle.circom" in url else exploit_mock_text
+        )
         self.gl.nondet.exec_prompt = lambda p, response_format="json": {
             "verdict": "APPROVED", "confidence": 99, "reason": "Signal path_index[i] unconstrained allowing fake root proof"
         }
 
-        self.contract.submit_counterexample(self.tid, "https://gist.github.com/zk-exploit/fake_witness.js")
+        import hashlib
+        c_hash = hashlib.sha256(circuit_mock_text.encode('utf-8')).hexdigest()
+        e_hash = hashlib.sha256(exploit_mock_text.encode('utf-8')).hexdigest()
+
+        # Update expected circuit hash since it was initialized with default in setUp
+        self.contract.tasks[self.tid].circuit_hash = c_hash
+
+        self.contract.submit_counterexample(self.tid, "https://gist.github.com/zk-exploit/fake_witness.js", e_hash)
         self.assertEqual(self.contract.tasks[self.tid].status, "AWAITING_PAYOUT")
 
         # Early finalization attempt -> REVERT
@@ -141,9 +155,22 @@ class TestZeroTruthProofExecutionSuite(unittest.TestCase):
         self.gl.message.value = MockBigInt(600)
         self.contract.accept_audit_task(self.tid)
 
-        self.gl.nondet.web.render = lambda url, mode="text": "Circuit code"
+        circuit_mock_text = "pragma circom 2.0.0; template MerkleProof() { signal input path_index; }"
+        exploit_mock_text = "Exploit witness script setting path_index to fake value"
+
+        self.gl.nondet.web.render = lambda url, mode="text": (
+            circuit_mock_text if "merkle.circom" in url else exploit_mock_text
+        )
         self.gl.nondet.exec_prompt = lambda p, response_format="json": {"verdict": "APPROVED", "confidence": 92, "reason": "Proof valid"}
-        self.contract.submit_counterexample(self.tid, "https://gist.github.com/proof.js")
+
+        import hashlib
+        c_hash = hashlib.sha256(circuit_mock_text.encode('utf-8')).hexdigest()
+        e_hash = hashlib.sha256(exploit_mock_text.encode('utf-8')).hexdigest()
+
+        # Update expected circuit hash since it was initialized with default in setUp
+        self.contract.tasks[self.tid].circuit_hash = c_hash
+
+        self.contract.submit_counterexample(self.tid, "https://gist.github.com/proof.js", e_hash)
 
         # Owner raises dispute at T+8h
         self.gl.message_raw = {"datetime": "2026-08-24T08:00:00+00:00"}
