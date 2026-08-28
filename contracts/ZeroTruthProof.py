@@ -241,17 +241,20 @@ CIRCUIT FRAMEWORK & COMPILER:
 FOCUS AREA / CONSTRAINT SPECIFICATION:
 {focus_str}
 
-ORIGINAL TARGET CIRCUIT CODE:
-{c_text[:2500]}
+ORIGINAL TARGET CIRCUIT CODE (FULL EVIDENCE):
+{c_text[:50000]}
 
-SUBMITTED MATHEMATICAL COUNTEREXAMPLE / POC WITNESS:
-{e_text[:2500]}
+SUBMITTED MATHEMATICAL COUNTEREXAMPLE / POC WITNESS (FULL EVIDENCE):
+{e_text[:50000]}
 
 DECISION FRAMEWORK:
 - APPROVED: The counterexample conclusively demonstrates a critical flaw (under-constrained signal, soundness break, fake proof generation, or missing polynomial constraint).
 - PARTIAL: Demonstrates minor constraint redundancy, informational dead-code signals, or sub-optimal gate allocation without soundness failure.
 - REFUND: The counterexample is invalid, mathematically flawed, hallucinates constraints, or fails to bypass circuit verification.
 - ESCALATE: The circuit is too complex, uses unverified custom polynomial gates, or requires human cryptographic arbitration.
+
+REPRODUCIBILITY REQUIREMENT:
+Provide a step-by-step mathematical witness evaluation trace showing how the counterexample evaluates against the declared R1CS/PlonKish constraints.
 
 Respond ONLY with valid JSON:
 {{"verdict": "APPROVED|PARTIAL|REFUND|ESCALATE", "confidence": 0-100, "reason": "Formal cryptographic justification"}}
