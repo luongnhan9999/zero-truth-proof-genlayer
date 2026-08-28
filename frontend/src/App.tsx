@@ -51,7 +51,18 @@ export default function App() {
   const [selectedRole, setSelectedRole] = useState<'OWNER' | 'AUDITOR' | 'ADMIN'>('OWNER');
   
   // Smart Contract Info (Default test address, can be configured in UI)
-  const [contractAddress, setContractAddress] = useState(import.meta.env.VITE_CONTRACT_ADDRESS || '0x5989f6F2526D3f27E9786e2f24dd59d5CdD8397a');
+  const getInitialContractAddress = () => {
+    const envAddr = import.meta.env.VITE_CONTRACT_ADDRESS;
+    const oldAddresses = [
+      '0x8fc01bdac0fc8eba6f6b0d0fdd25c55031c1349f',
+      '0xe9dde431c00a5b8d05cbf14f3912e2736e325d18'
+    ];
+    if (envAddr && !oldAddresses.includes(envAddr.toLowerCase().trim())) {
+      return envAddr;
+    }
+    return '0x5989f6F2526D3f27E9786e2f24dd59d5CdD8397a';
+  };
+  const [contractAddress, setContractAddress] = useState(getInitialContractAddress());
   const [tasks, setTasks] = useState<ZKAuditTask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
   
