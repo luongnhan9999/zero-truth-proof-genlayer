@@ -94,7 +94,7 @@ class TestZeroTruthProofExecutionSuite(unittest.TestCase):
         # Project owner locks 3000 GEN bounty
         self.tid = "zk_merkle_tree_circuit_01"
         self.circuit_code = "pragma circom 2.1.6;\ntemplate MerkleProof() {\n    signal input path_index;\n    signal output root;\n    path_index === 1;\n}"
-        self.exploit_code = "Component main = MerkleProof();\n// path_index input forge root"
+        self.exploit_code = '{"path_index": 1, "root": 55}\nComponent main = MerkleProof();\npath_index = 1;'
         import hashlib
         self.circuit_hash = hashlib.sha256(self.circuit_code.encode("utf-8")).hexdigest()
         self.exploit_hash = hashlib.sha256(self.exploit_code.encode("utf-8")).hexdigest()
