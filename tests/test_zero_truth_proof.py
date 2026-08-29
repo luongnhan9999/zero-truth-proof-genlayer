@@ -174,5 +174,67 @@ class TestZeroTruthProofExecutionSuite(unittest.TestCase):
         self.assertEqual(self.gl.transfers[1]["to"], self.owner)
         self.assertEqual(self.gl.transfers[1]["value"], 1500)
 
+    def test_04_deterministic_compiler_verification(self):
+        """Test on-chain Circom AST parsing, R1CS constraint extraction, and witness evaluation."""
+        circuit = """pragma circom 2.1.6;
+template Multiplier2() {
+    signal input a;
+    signal input b;
+    signal output c;
+    c <== a * b;
+    a === b;
+}"""
+        witness_valid = '{"a": 5, "b": 5, "c": 25}'
+        res = contract_module.DeterministicCircomCompiler.compile_and_verify(circuit, witness_valid)
+        self.assertTrue(res["verified"])
+        self.assertEqual(res["ast"]["templates"][0]["name"], "Multiplier2")
+        self.assertIn("a", res["ast"]["input_signals"])
+        self.assertIn("b", res["ast"]["input_signals"])
+        self.assertEqual(len(res["ast"]["constraints"]), 2)
+        self.assertTrue(any("PASSED" in line for line in res["trace"]))
+
+        # Missing input signal in witness -> MUST FAIL DETERMINISTICALLY
+        witness_invalid = '{"a": 5}'
+        res_fail = contract_module.DeterministicCircomCompiler.compile_and_verify(circuit, witness_invalid)
+        self.assertFalse(res_fail["verified"])
+        self.assertEqual(res_fail["stage"], "CONSTRAINT_EVALUATION")
+
+    def test_05_untruncated_prompt_evidence(self):
+        """Verify prompt generated for LLM validator contains full untruncated source code without slicing."""
+        captured_prompt = []
+        def mock_exec_prompt(p, response_format="json"):
+            captured_prompt.append(p)
+            return {"verdict": "APPROVED", "confidence": 95, "reason": "Verified"}
+
+        self.gl.message.sender_address = self.auditor
+        self.gl.message.value = MockBigInt(600)
+        self.contract.accept_audit_task(self.tid)
+
+        long_circuit = self.circuit_code + "\n" + "// padding " * 500
+        long_exploit = self.exploit_code + "\n" + "// exploit padding " * 500
+        import hashlib
+        long_c_hash = hashlib.sha256(long_circuit.encode("utf-8")).hexdigest()
+        long_e_hash = hashlib.sha256(long_exploit.encode("utf-8")).hexdigest()
+
+        tid_long = "long_code_task"
+        self.gl.message.sender_address = self.owner
+        self.gl.message.value = MockBigInt(3000)
+        self.contract.create_audit_bounty(
+            tid_long, "https://github.com/long.circom", long_c_hash, "Circom 2.1.6", "Focus"
+        )
+        self.gl.message.sender_address = self.auditor
+        self.gl.message.value = MockBigInt(600)
+        self.contract.accept_audit_task(tid_long)
+
+        self.gl.nondet.web.render = lambda url, mode="text": long_circuit if "long.circom" in url else long_exploit
+        self.gl.nondet.exec_prompt = mock_exec_prompt
+
+        self.contract.submit_counterexample(tid_long, "https://gist.github.com/long_exploit.js", long_e_hash)
+        self.assertTrue(len(captured_prompt) >= 1)
+        prompt_text = captured_prompt[0]
+        self.assertIn("DETERMINISTIC COMPILER & WITNESS EVALUATION TRACE:", prompt_text)
+        self.assertIn(long_circuit, prompt_text)
+        self.assertIn(long_exploit, prompt_text)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
