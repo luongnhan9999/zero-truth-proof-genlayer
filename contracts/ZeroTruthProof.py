@@ -25,191 +25,260 @@ class ZKAuditTask:
     payout_ready_at: bigint
     disputed_at: bigint
 
-class R1CSEvaluator:
+class DeterministicCircomCompiler:
     """
-    A genuine BN254-field R1CS constraint and witness evaluation engine.
-    Parses Circom constraints into linear combination matrices (A, B, C)
-    and verifies if a concrete numerical witness satisfies the Rank-1 system.
+    On-chain deterministic AST compiler and R1CS witness constraint verifier.
+    Parses Circom syntax to extract templates, signals, and constraint equations,
+    and programmatically evaluates witness values against constraints.
     """
-    PRIME = 21888242871839275222246405745257275088548364400416034343698204186575808495617
-
     @staticmethod
-    def parse_linear_combination(expr: str) -> dict:
-        """Parses a linear combination expression into a dict of {signal: coefficient}."""
+    def parse_circuit_ast(circuit_code: str) -> dict:
         import re
-        expr = expr.replace(" ", "")
-        terms = re.findall(r"([+-]?[0-9]*)\*?([a-zA-Z0-9_\[\]]+)", expr)
-        if not terms:
-            if re.match(r"^-?[0-9]+$", expr):
-                return {"1": int(expr) % R1CSEvaluator.PRIME}
-            elif re.match(r"^[a-zA-Z0-9_\[\]]+$", expr):
-                return {expr: 1}
-            return {}
+        ast = {
+            "templates": [],
+            "input_signals": [],
+            "output_signals": [],
+            "intermediate_signals": [],
+            "constraints": [],
+            "assignments": [], # list of {"var": name, "expr": expression}
+            "valid_syntax": True,
+            "errors": []
+        }
+        
+        # Strip comments
+        code_clean = re.sub(r"/\*.*?\*/", "", circuit_code, flags=re.DOTALL)
+        code_clean = re.sub(r"//.*", "", code_clean)
+
+        if "pragma circom" not in code_clean:
+            ast["valid_syntax"] = False
+            ast["errors"].append("Missing 'pragma circom' directive")
+            return ast
+
+        template_matches = re.findall(r"template\s+([a-zA-Z0-9_]+)\s*\((.*?)\)\s*\{", code_clean, re.DOTALL)
+        if not template_matches:
+            ast["valid_syntax"] = False
+            ast["errors"].append("No template definition found in circuit source")
+            return ast
             
-        lc = {}
-        for coef_str, var in terms:
-            coef = 1
-            if coef_str == "-":
-                coef = -1
-            elif coef_str == "+":
-                coef = 1
-            elif coef_str:
-                coef = int(coef_str)
-            lc[var] = (lc.get(var, 0) + coef) % R1CSEvaluator.PRIME
-        return lc
+        for tname, tparams in template_matches:
+            ast["templates"].append({"name": tname, "params": tparams.strip()})
 
-    @staticmethod
-    def evaluate_lc(lc: dict, witness: dict) -> int:
-        """Evaluates a linear combination against a witness assignment."""
-        val = 0
-        for var, coef in lc.items():
-            if var == "1":
-                val = (val + coef) % R1CSEvaluator.PRIME
-            else:
-                if var not in witness:
-                    raise ValueError(f"Missing witness value for signal '{var}'")
-                w_val = witness[var]
-                if not isinstance(w_val, int):
-                    raise ValueError(f"Witness value for '{var}' must be a numerical integer, got: {w_val}")
-                val = (val + coef * w_val) % R1CSEvaluator.PRIME
-        return val
-
-    @staticmethod
-    def compile_and_verify(circuit_code: str, witness_json: str) -> dict:
-        import json, re
+        inputs = re.findall(r"signal\s+input\s+([a-zA-Z0-9_]+)", code_clean)
+        outputs = re.findall(r"signal\s+output\s+([a-zA-Z0-9_]+)", code_clean)
+        intermediates = re.findall(r"signal\s+([a-zA-Z0-9_]+)", code_clean)
         
-        # 1. Parse witness
-        try:
-            # Find JSON block in witness code
-            json_match = re.search(r"\{[\s\S]*\}", witness_json)
-            if not json_match:
-                raise ValueError("No JSON object structure found in witness")
-            witness_data = json.loads(json_match.group(0))
-            if not isinstance(witness_data, dict):
-                raise ValueError("Witness must be a JSON object mapping signals to integers")
-            witness = {}
-            for k, v in witness_data.items():
-                witness[str(k)] = int(v)
-        except Exception as e:
-            return {
-                "verified": False,
-                "reason": f"Witness verification failed: Invalid JSON or non-integer witness format. Error: {str(e)}",
-                "trace": []
-            }
+        intermediates = [s for s in intermediates if s not in inputs and s not in outputs and s != "input" and s != "output"]
 
-        # 2. Parse Circom variables and constraints
-        if "pragma circom" not in circuit_code:
-            return {
-                "verified": False,
-                "reason": "Compilation failed: Missing 'pragma circom' directive",
-                "trace": []
-            }
+        ast["input_signals"] = inputs
+        ast["output_signals"] = outputs
+        ast["intermediate_signals"] = intermediates
 
-        inputs = re.findall(r"signal\s+input\s+([a-zA-Z0-9_]+)", circuit_code)
-        outputs = re.findall(r"signal\s+output\s+([a-zA-Z0-9_]+)", circuit_code)
-        intermediates = re.findall(r"signal\s+([a-zA-Z0-9_]+)", circuit_code)
-        
         if not inputs:
-            return {
-                "verified": False,
-                "reason": "Compilation failed: No input signals declared in circuit",
-                "trace": []
-            }
+            ast["valid_syntax"] = False
+            ast["errors"].append("Circuit contains no 'signal input' declarations")
+            return ast
 
-        missing_inputs = [inp for inp in inputs if inp not in witness]
-        if missing_inputs:
-            return {
-                "verified": False,
-                "reason": f"Witness verification failed: Missing input signals in witness: {', '.join(missing_inputs)}",
-                "trace": []
-            }
-
-        constraint_regexes = [
-            r"([a-zA-Z0-9_+\-*()\s]+)===\s*([a-zA-Z0-9_+\-*()\s]+)",
-            r"([a-zA-Z0-9_\[\]]+)\s*<==\s*([a-zA-Z0-9_+\-*()\s]+)",
-            r"([a-zA-Z0-9_\[\]]+)\s*==>\s*([a-zA-Z0-9_+\-*()\s]+)"
-        ]
-        
-        constraints = []
-        for line in circuit_code.split(";"):
-            line = line.strip()
-            if not line or any(k in line for k in ["pragma", "template", "signal", "component", "import"]):
+        # Parse assignments and constraints
+        statements = re.findall(r"([^;\n]+);", code_clean)
+        for stmt in statements:
+            stmt_clean = stmt.strip()
+            if not stmt_clean:
                 continue
-                
-            matched = False
-            for regex in constraint_regexes:
-                match = re.search(regex, line)
-                if match:
-                    lhs = match.group(1).strip()
-                    rhs = match.group(2).strip()
-                    
-                    if "*" in rhs and not ("+" in rhs or "-" in rhs):
-                        parts = rhs.split("*")
-                        constraints.append({
-                            "A": R1CSEvaluator.parse_linear_combination(parts[0]),
-                            "B": R1CSEvaluator.parse_linear_combination(parts[1]),
-                            "C": R1CSEvaluator.parse_linear_combination(lhs),
-                            "raw": line
-                        })
-                    elif "*" in lhs and not ("+" in lhs or "-" in lhs):
-                        parts = lhs.split("*")
-                        constraints.append({
-                            "A": R1CSEvaluator.parse_linear_combination(parts[0]),
-                            "B": R1CSEvaluator.parse_linear_combination(parts[1]),
-                            "C": R1CSEvaluator.parse_linear_combination(rhs),
-                            "raw": line
-                        })
-                    else:
-                        lc_lhs = R1CSEvaluator.parse_linear_combination(lhs)
-                        lc_rhs = R1CSEvaluator.parse_linear_combination(rhs)
-                        diff = {}
-                        for k, v in lc_lhs.items():
-                            diff[k] = v
-                        for k, v in lc_rhs.items():
-                            diff[k] = (diff.get(k, 0) - v) % R1CSEvaluator.PRIME
-                            
-                        constraints.append({
-                            "A": diff,
-                            "B": {"1": 1},
-                            "C": {"1": 0},
-                            "raw": line
-                        })
-                    matched = True
-                    break
+            
+            if "<==" in stmt_clean:
+                parts = stmt_clean.split("<==")
+                var_name = parts[0].strip()
+                expr = parts[1].strip()
+                ast["assignments"].append({"var": var_name, "expr": expr})
+                ast["constraints"].append({"lhs": var_name, "op": "===", "rhs": expr})
+            elif "==>" in stmt_clean:
+                parts = stmt_clean.split("==>")
+                var_name = parts[1].strip()
+                expr = parts[0].strip()
+                ast["assignments"].append({"var": var_name, "expr": expr})
+                ast["constraints"].append({"lhs": var_name, "op": "===", "rhs": expr})
+            elif "===" in stmt_clean:
+                parts = stmt_clean.split("===")
+                ast["constraints"].append({"lhs": parts[0].strip(), "op": "===", "rhs": parts[1].strip()})
 
-        if not constraints:
+        if not ast["constraints"]:
+            ast["valid_syntax"] = False
+            ast["errors"].append("No R1CS constraint operators (<==, ==>, ===) found in circuit")
+
+        return ast
+
+    @staticmethod
+    def parse_witness(witness_code: str) -> dict:
+        import json, re
+        witness = {"signals": {}, "valid_format": True, "error": ""}
+        
+        # STRICT REQUIREMENT: Witness must be a valid JSON representation of signal assignments
+        try:
+            json_match = re.search(r"\{[\s\S]*\}", witness_code)
+            if json_match:
+                data = json.loads(json_match.group(0))
+                if isinstance(data, dict):
+                    parsed_signals = {}
+                    for k, v in data.items():
+                        try:
+                            if isinstance(v, str):
+                                if v.startswith("0x"):
+                                    parsed_signals[str(k)] = int(v, 16)
+                                else:
+                                    parsed_signals[str(k)] = int(v) if v.isdigit() else float(v)
+                            elif isinstance(v, (int, float)):
+                                parsed_signals[str(k)] = v
+                            else:
+                                raise ValueError("Invalid signal value type")
+                        except Exception:
+                            raise ValueError(f"Signal '{k}' has non-numeric value: {v}")
+                    witness["signals"] = parsed_signals
+                    return witness
+        except Exception as e:
+            witness["valid_format"] = False
+            witness["error"] = f"Strict witness validation failed: {str(e)}"
+            return witness
+
+        witness["valid_format"] = False
+        witness["error"] = "Witness code is not a valid JSON object of signal assignments (e.g. {'x': 5, 'y': 10})"
+        return witness
+
+    @staticmethod
+    def _evaluate_expression(expr: str, signal_values: dict) -> int:
+        """Safely evaluate simple arithmetic expressions (combinations of signals and operations +, -, *, /)"""
+        import re
+        expr_clean = expr.strip()
+        
+        if re.match(r"^-?[0-9]+$", expr_clean):
+            return int(expr_clean)
+        if re.match(r"^0x[0-9a-fA-F]+$", expr_clean):
+            return int(expr_clean, 16)
+            
+        if expr_clean in signal_values:
+            return signal_values[expr_clean]
+
+        for op in ["*", "+", "-", "/"]:
+            if op in expr_clean:
+                parts = expr_clean.split(op)
+                if len(parts) == 2:
+                    left = DeterministicCircomCompiler._evaluate_expression(parts[0], signal_values)
+                    right = DeterministicCircomCompiler._evaluate_expression(parts[1], signal_values)
+                    if op == "*":
+                        return left * right
+                    elif op == "+":
+                        return left + right
+                    elif op == "-":
+                        return left - right
+                    elif op == "/":
+                        return left // right if right != 0 else 0
+                        
+        raise ValueError(f"Expression '{expr}' contains unassigned/unknown signals or unsupported operators")
+
+    @staticmethod
+    def compile_and_verify(circuit_code: str, witness_code: str) -> dict:
+        ast = DeterministicCircomCompiler.parse_circuit_ast(circuit_code)
+        if not ast["valid_syntax"]:
             return {
                 "verified": False,
-                "reason": "Compilation failed: No valid quadratic R1CS constraints found in circuit",
+                "stage": "COMPILATION",
+                "reason": f"Circuit compilation failed: {'; '.join(ast['errors'])}",
+                "ast": ast,
+                "witness": None,
+                "trace": []
+            }
+
+        witness = DeterministicCircomCompiler.parse_witness(witness_code)
+        if not witness["valid_format"]:
+            return {
+                "verified": False,
+                "stage": "WITNESS_PARSING",
+                "reason": f"Witness verification failed: {witness['error']}",
+                "ast": ast,
+                "witness": witness,
                 "trace": []
             }
 
         trace = []
-        for idx, c in enumerate(constraints):
-            try:
-                a_val = R1CSEvaluator.evaluate_lc(c["A"], witness)
-                b_val = R1CSEvaluator.evaluate_lc(c["B"], witness)
-                c_val = R1CSEvaluator.evaluate_lc(c["C"], witness)
-                
-                check = (a_val * b_val - c_val) % R1CSEvaluator.PRIME
-                if check == 0:
-                    trace.append(f"Constraint #{idx+1} [A: {c['A']}, B: {c['B']}, C: {c['C']}]: PASSED (A*B === C)")
+        signal_values = {}
+        missing_inputs = []
+
+        # 1. Bind inputs
+        for inp in ast["input_signals"]:
+            if inp in witness["signals"]:
+                val = witness["signals"][inp]
+                signal_values[inp] = val
+                trace.append(f"Input signal '{inp}' bound to witness value: {val}")
+            else:
+                missing_inputs.append(inp)
+                trace.append(f"WARNING: Input signal '{inp}' missing from witness")
+
+        if missing_inputs:
+            return {
+                "verified": False,
+                "stage": "CONSTRAINT_EVALUATION",
+                "reason": f"Deterministic proof check failed: Witness does not supply values for input signals: {', '.join(missing_inputs)}",
+                "ast": ast,
+                "witness": witness,
+                "trace": trace
+            }
+
+        # 2. Evaluate assignments/intermediate signals
+        try:
+            for assign in ast["assignments"]:
+                var_name = assign["var"]
+                expr = assign["expr"]
+                if var_name not in witness["signals"]:
+                    computed_val = DeterministicCircomCompiler._evaluate_expression(expr, signal_values)
+                    signal_values[var_name] = computed_val
+                    trace.append(f"Evaluated intermediate/output signal '{var_name}': {computed_val} (via expression: {expr})")
                 else:
-                    return {
-                        "verified": False,
-                        "reason": f"Witness verification failed: R1CS constraint violation on constraint #{idx+1} ({c['raw']}). A*B - C = {check} (mod p) != 0",
-                        "trace": trace
-                    }
+                    signal_values[var_name] = witness["signals"][var_name]
+                    trace.append(f"Using explicit witness value for signal '{var_name}': {witness['signals'][var_name]}")
+        except Exception as e:
+            return {
+                "verified": False,
+                "stage": "CONSTRAINT_EVALUATION",
+                "reason": f"Signal propagation/assignment evaluation failed: {str(e)}",
+                "ast": ast,
+                "witness": witness,
+                "trace": trace
+            }
+
+        # 3. Mathematically evaluate R1CS equations
+        failed_constraints = []
+        for idx, c in enumerate(ast["constraints"]):
+            lhs_expr = c["lhs"]
+            rhs_expr = c["rhs"]
+            
+            try:
+                lhs_val = DeterministicCircomCompiler._evaluate_expression(lhs_expr, signal_values)
+                rhs_val = DeterministicCircomCompiler._evaluate_expression(rhs_expr, signal_values)
+                
+                if lhs_val == rhs_val:
+                    trace.append(f"Constraint #{idx+1} [{lhs_expr} === {rhs_expr}]: PASSED ({lhs_val} == {rhs_val})")
+                else:
+                    failed_constraints.append(f"Constraint #{idx+1} [{lhs_expr} === {rhs_expr}] failed: Left combination ({lhs_val}) != Right combination ({rhs_val})")
+                    trace.append(f"Constraint #{idx+1} [{lhs_expr} === {rhs_expr}]: FAILED ({lhs_val} != {rhs_val})")
             except Exception as e:
-                return {
-                    "verified": False,
-                    "reason": f"Witness verification failed during constraint evaluation: {str(e)}",
-                    "trace": trace
-                }
+                failed_constraints.append(f"Constraint #{idx+1} [{lhs_expr} === {rhs_expr}] failed evaluation: {str(e)}")
+                trace.append(f"Constraint #{idx+1} [{lhs_expr} === {rhs_expr}]: ERROR ({str(e)})")
+
+        if failed_constraints:
+            return {
+                "verified": False,
+                "stage": "CONSTRAINT_EVALUATION",
+                "reason": f"Deterministic mathematical verification failed: {'; '.join(failed_constraints)}",
+                "ast": ast,
+                "witness": witness,
+                "trace": trace
+            }
 
         return {
             "verified": True,
-            "reason": f"Success: Witness satisfied all {len(constraints)} R1CS constraints of the compiled circuit.",
+            "stage": "COMPLETE",
+            "reason": f"Deterministic Circom compilation & witness evaluation passed. Compiled {len(ast['templates'])} template(s), {len(ast['input_signals'])} input signal(s), and {len(ast['constraints'])} R1CS constraint(s). Evaluated and verified all {len(ast['constraints'])} constraint(s) mathematically.",
+            "ast": ast,
+            "witness": witness,
             "trace": trace
         }
 
@@ -391,13 +460,12 @@ class Contract(gl.Contract):
 
             # 3. On-Chain Deterministic Circom AST Compilation & R1CS Witness Constraint Verification
             if "circom" in framework_str.lower():
-                compile_res = R1CSEvaluator.compile_and_verify(c_text, e_text)
+                compile_res = DeterministicCircomCompiler.compile_and_verify(c_text, e_text)
                 if not compile_res["verified"]:
-                    is_witness_err = "Witness verification failed" in compile_res["reason"]
                     return {
-                        "verdict": "REFUND" if is_witness_err else "ESCALATE",
+                        "verdict": "REFUND" if compile_res["stage"] == "WITNESS_PARSING" else "ESCALATE",
                         "confidence": 100,
-                        "reason": f"Deterministic R1CS evaluation check: {compile_res['reason']}"
+                        "reason": f"Deterministic compilation check: {compile_res['reason']}"
                     }
                 eval_trace = compile_res["trace"]
             else:
