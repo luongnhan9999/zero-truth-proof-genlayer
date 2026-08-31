@@ -94,7 +94,7 @@ class TestZeroTruthProofExecutionSuite(unittest.TestCase):
         # Project owner locks 3000 GEN bounty
         self.tid = "zk_merkle_tree_circuit_01"
         self.circuit_code = "pragma circom 2.1.6;\ntemplate MerkleProof() {\n    signal input path_index;\n    signal output root;\n    path_index === 1;\n}"
-        self.exploit_code = "Component main = MerkleProof();\n// path_index input forge root"
+        self.exploit_code = '{"path_index": 1, "root": 999}'
         import hashlib
         self.circuit_hash = hashlib.sha256(self.circuit_code.encode("utf-8")).hexdigest()
         self.exploit_hash = hashlib.sha256(self.exploit_code.encode("utf-8")).hexdigest()
@@ -185,19 +185,15 @@ template Multiplier2() {
     a === b;
 }"""
         witness_valid = '{"a": 5, "b": 5, "c": 25}'
-        res = contract_module.DeterministicCircomCompiler.compile_and_verify(circuit, witness_valid)
+        res = contract_module.R1CSEvaluator.compile_and_verify(circuit, witness_valid)
         self.assertTrue(res["verified"])
-        self.assertEqual(res["ast"]["templates"][0]["name"], "Multiplier2")
-        self.assertIn("a", res["ast"]["input_signals"])
-        self.assertIn("b", res["ast"]["input_signals"])
-        self.assertEqual(len(res["ast"]["constraints"]), 2)
         self.assertTrue(any("PASSED" in line for line in res["trace"]))
 
         # Missing input signal in witness -> MUST FAIL DETERMINISTICALLY
         witness_invalid = '{"a": 5}'
-        res_fail = contract_module.DeterministicCircomCompiler.compile_and_verify(circuit, witness_invalid)
+        res_fail = contract_module.R1CSEvaluator.compile_and_verify(circuit, witness_invalid)
         self.assertFalse(res_fail["verified"])
-        self.assertEqual(res_fail["stage"], "CONSTRAINT_EVALUATION")
+        self.assertIn("Missing input signals in witness", res_fail["reason"])
 
     def test_05_untruncated_prompt_evidence(self):
         """Verify prompt generated for LLM validator contains full untruncated source code without slicing."""
@@ -235,6 +231,30 @@ template Multiplier2() {
         self.assertIn("DETERMINISTIC COMPILER & WITNESS EVALUATION TRACE:", prompt_text)
         self.assertIn(long_circuit, prompt_text)
         self.assertIn(long_exploit, prompt_text)
+
+    def test_06_adversarial_invalid_witnesses_rejected(self):
+        """Adversarial tests: verify that invalid format, invalid math values, and arbitrary text witnesses are rejected."""
+        circuit = """pragma circom 2.1.6;
+template Multiplier2() {
+    signal input a;
+    signal input b;
+    signal output c;
+    c <== a * b;
+}"""
+        # 1. Arbitrary non-JSON witness text (Steward: 'arbitrary witness text') -> MUST REJECT
+        res_text = contract_module.R1CSEvaluator.compile_and_verify(circuit, "arbitrary non-JSON text witness exploit")
+        self.assertFalse(res_text["verified"])
+        self.assertIn("Witness verification failed", res_text["reason"])
+
+        # 2. Correct input names but mathematically incorrect constraint values -> MUST REJECT
+        res_math = contract_module.R1CSEvaluator.compile_and_verify(circuit, '{"a": 5, "b": 5, "c": 999}')
+        self.assertFalse(res_math["verified"])
+        self.assertIn("R1CS constraint violation", res_math["reason"])
+
+        # 3. Correct names but non-integer values -> MUST REJECT
+        res_str = contract_module.R1CSEvaluator.compile_and_verify(circuit, '{"a": "hello", "b": 5, "c": 25}')
+        self.assertFalse(res_str["verified"])
+        self.assertIn("Witness verification failed", res_str["reason"])
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
