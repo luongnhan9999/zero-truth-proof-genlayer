@@ -76,7 +76,149 @@ sys.modules["genlayer"] = mock_mod
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "contracts")))
 import ZeroTruthProof as contract_module
 
-class TestZeroTruthProofExecutionSuite(unittest.TestCase):
+
+class TestR1CSVerifier(unittest.TestCase):
+    """Dedicated test suite for R1CSConstraintVerifier — the core on-chain verification engine."""
+
+    CIRCUIT = """pragma circom 2.1.6;
+template Multiplier2() {
+    signal input a;
+    signal input b;
+    signal output c;
+    c <== a * b;
+}"""
+
+    CIRCUIT_WITH_EQUALITY = """pragma circom 2.1.6;
+template EqualCheck() {
+    signal input a;
+    signal input b;
+    signal output c;
+    c <== a * b;
+    a === b;
+}"""
+
+    CIRCUIT_PRECEDENCE = """pragma circom 2.1.6;
+template Precedence() {
+    signal input x;
+    signal input y;
+    signal input z;
+    signal output out;
+    out <== x + y * z;
+}"""
+
+    def test_01_valid_witness_passes(self):
+        """Correct witness values satisfy all R1CS constraints."""
+        res = contract_module.R1CSConstraintVerifier.verify(self.CIRCUIT, '{"a": 3, "b": 7, "c": 21}')
+        self.assertTrue(res["verified"])
+        self.assertEqual(res["stage"], "COMPLETE")
+        self.assertTrue(any("SATISFIED" in line for line in res["trace"]))
+
+    def test_02_wrong_arithmetic_rejected(self):
+        """Witness declares c=99 but circuit requires c = a*b = 3*7 = 21 → MUST REJECT."""
+        res = contract_module.R1CSConstraintVerifier.verify(self.CIRCUIT, '{"a": 3, "b": 7, "c": 99}')
+        self.assertFalse(res["verified"])
+        self.assertEqual(res["stage"], "R1CS_VERIFICATION")
+        self.assertIn("VIOLATED", res["reason"])
+        self.assertTrue(any("VIOLATED" in line for line in res["trace"]))
+
+    def test_03_arbitrary_text_rejected(self):
+        """Non-JSON arbitrary text (comments, prose) → MUST REJECT at WITNESS_PARSING stage."""
+        witness = "This is some arbitrary code or comment describing a witness but not executing one."
+        res = contract_module.R1CSConstraintVerifier.verify(self.CIRCUIT, witness)
+        self.assertFalse(res["verified"])
+        self.assertEqual(res["stage"], "WITNESS_PARSING")
+        self.assertIn("non-JSON", res["reason"])
+
+    def test_04_missing_input_signal_rejected(self):
+        """Witness missing required input signal 'b' → MUST REJECT at WITNESS_BINDING stage."""
+        res = contract_module.R1CSConstraintVerifier.verify(self.CIRCUIT, '{"a": 5, "c": 25}')
+        self.assertFalse(res["verified"])
+        self.assertEqual(res["stage"], "WITNESS_BINDING")
+        self.assertIn("b", res["reason"])
+
+    def test_05_zero_value_bypass_attempt(self):
+        """Witness sets all signals to 0 — constraint c === a*b holds (0*0=0) → passes (correctly).
+        Then test with equality constraint a === b where a=0, b=1 → MUST REJECT."""
+        # Zero-zero: c = 0*0 = 0, passes correctly
+        res_zero = contract_module.R1CSConstraintVerifier.verify(self.CIRCUIT, '{"a": 0, "b": 0, "c": 0}')
+        self.assertTrue(res_zero["verified"])
+
+        # Zero vs non-zero with equality constraint: a=0, b=1 → a !== b → REJECT
+        res_fail = contract_module.R1CSConstraintVerifier.verify(
+            self.CIRCUIT_WITH_EQUALITY, '{"a": 0, "b": 1, "c": 0}'
+        )
+        self.assertFalse(res_fail["verified"])
+        self.assertEqual(res_fail["stage"], "R1CS_VERIFICATION")
+
+    def test_06_invalid_circuit_syntax(self):
+        """Circuit without 'pragma circom' → MUST REJECT at CIRCUIT_COMPILATION stage."""
+        bad_circuit = "template Foo() { signal input x; x === 1; }"
+        res = contract_module.R1CSConstraintVerifier.verify(bad_circuit, '{"x": 1}')
+        self.assertFalse(res["verified"])
+        self.assertEqual(res["stage"], "CIRCUIT_COMPILATION")
+        self.assertIn("pragma circom", res["reason"])
+
+    def test_07_operator_precedence(self):
+        """Expression 'x + y * z' must evaluate as x + (y*z), not (x+y)*z.
+        x=2, y=3, z=4 → out = 2 + 3*4 = 14, NOT (2+3)*4 = 20."""
+        # Correct: out = 14
+        res_correct = contract_module.R1CSConstraintVerifier.verify(
+            self.CIRCUIT_PRECEDENCE, '{"x": 2, "y": 3, "z": 4, "out": 14}'
+        )
+        self.assertTrue(res_correct["verified"])
+
+        # Wrong precedence value: out = 20 → MUST REJECT
+        res_wrong = contract_module.R1CSConstraintVerifier.verify(
+            self.CIRCUIT_PRECEDENCE, '{"x": 2, "y": 3, "z": 4, "out": 20}'
+        )
+        self.assertFalse(res_wrong["verified"])
+        self.assertEqual(res_wrong["stage"], "R1CS_VERIFICATION")
+
+    def test_08_empty_json_rejected(self):
+        """Empty JSON object {} → MUST REJECT (no signal assignments)."""
+        res = contract_module.R1CSConstraintVerifier.verify(self.CIRCUIT, '{}')
+        self.assertFalse(res["verified"])
+        self.assertEqual(res["stage"], "WITNESS_PARSING")
+        self.assertIn("empty", res["reason"].lower())
+
+    def test_09_boolean_values_rejected(self):
+        """JSON with boolean values → MUST REJECT (signals must be numeric)."""
+        res = contract_module.R1CSConstraintVerifier.verify(self.CIRCUIT, '{"a": true, "b": 5, "c": 5}')
+        self.assertFalse(res["verified"])
+        self.assertEqual(res["stage"], "WITNESS_PARSING")
+        self.assertIn("boolean", res["reason"])
+
+    def test_10_expression_evaluator_standalone(self):
+        """Directly test the expression tokenizer/parser/evaluator for correctness."""
+        ev = contract_module.R1CSConstraintVerifier.evaluate_expression
+        signals = {"a": 3, "b": 5, "c": 10}
+
+        # Basic arithmetic
+        self.assertEqual(ev("a * b", signals), 15)
+        self.assertEqual(ev("a + b", signals), 8)
+        self.assertEqual(ev("c - a", signals), 7)
+
+        # Operator precedence: a + b * c = 3 + 5*10 = 53
+        self.assertEqual(ev("a + b * c", signals), 53)
+
+        # Parentheses: (a + b) * c = (3+5)*10 = 80
+        self.assertEqual(ev("(a + b) * c", signals), 80)
+
+        # Literal numbers
+        self.assertEqual(ev("42", {}), 42)
+        self.assertEqual(ev("0xff", {}), 255)
+
+        # Unary minus
+        self.assertEqual(ev("-a", signals), -3)
+
+        # Unknown signal → error
+        with self.assertRaises(ValueError):
+            ev("unknown_signal", signals)
+
+
+class TestContractIntegration(unittest.TestCase):
+    """Contract-level integration tests for the full escrow lifecycle."""
+
     def setUp(self):
         self.gl = mock_mod.gl
         self.gl.transfers = []
@@ -174,33 +316,8 @@ class TestZeroTruthProofExecutionSuite(unittest.TestCase):
         self.assertEqual(self.gl.transfers[1]["to"], self.owner)
         self.assertEqual(self.gl.transfers[1]["value"], 1500)
 
-    def test_04_deterministic_compiler_verification(self):
-        """Test on-chain Circom AST parsing, R1CS constraint extraction, and witness evaluation."""
-        circuit = """pragma circom 2.1.6;
-template Multiplier2() {
-    signal input a;
-    signal input b;
-    signal output c;
-    c <== a * b;
-    a === b;
-}"""
-        witness_valid = '{"a": 5, "b": 5, "c": 25}'
-        res = contract_module.DeterministicCircomCompiler.compile_and_verify(circuit, witness_valid)
-        self.assertTrue(res["verified"])
-        self.assertEqual(res["ast"]["templates"][0]["name"], "Multiplier2")
-        self.assertIn("a", res["ast"]["input_signals"])
-        self.assertIn("b", res["ast"]["input_signals"])
-        self.assertEqual(len(res["ast"]["constraints"]), 2)
-        self.assertTrue(any("PASSED" in line for line in res["trace"]))
-
-        # Missing input signal in witness -> MUST FAIL DETERMINISTICALLY
-        witness_invalid = '{"a": 5}'
-        res_fail = contract_module.DeterministicCircomCompiler.compile_and_verify(circuit, witness_invalid)
-        self.assertFalse(res_fail["verified"])
-        self.assertEqual(res_fail["stage"], "CONSTRAINT_EVALUATION")
-
-    def test_05_untruncated_prompt_evidence(self):
-        """Verify prompt generated for LLM validator contains full untruncated source code without slicing."""
+    def test_04_untruncated_prompt_evidence(self):
+        """Verify prompt generated for LLM validator contains full untruncated source code."""
         captured_prompt = []
         def mock_exec_prompt(p, response_format="json"):
             captured_prompt.append(p)
@@ -211,7 +328,8 @@ template Multiplier2() {
         self.contract.accept_audit_task(self.tid)
 
         long_circuit = self.circuit_code + "\n" + "// padding " * 500
-        long_exploit = self.exploit_code + "\n" + "// exploit padding " * 500
+        # Witness must remain valid JSON with numeric values for R1CS verifier to pass
+        long_exploit = '{"path_index": 1, "root": 1, "pad_0": 0, "pad_1": 0, "pad_2": 0, "pad_3": 0, "pad_4": 0}'
         import hashlib
         long_c_hash = hashlib.sha256(long_circuit.encode("utf-8")).hexdigest()
         long_e_hash = hashlib.sha256(long_exploit.encode("utf-8")).hexdigest()
@@ -232,42 +350,10 @@ template Multiplier2() {
         self.contract.submit_counterexample(tid_long, "https://gist.github.com/long_exploit.js", long_e_hash)
         self.assertTrue(len(captured_prompt) >= 1)
         prompt_text = captured_prompt[0]
-        self.assertIn("DETERMINISTIC COMPILER & WITNESS EVALUATION TRACE:", prompt_text)
+        self.assertIn("R1CS CONSTRAINT VERIFICATION TRACE:", prompt_text)
         self.assertIn(long_circuit, prompt_text)
         self.assertIn(long_exploit, prompt_text)
 
-    def test_06_adversarial_witness_validation(self):
-        """Adversarial validation check: proves invalid/dummy/incorrect witnesses are rejected."""
-        circuit = """pragma circom 2.1.6;
-template Multiplier2() {
-    signal input a;
-    signal input b;
-    signal output c;
-    c <== a * b;
-    a === b;
-}"""
-        
-        # 1. Adversarial: Mathematically incorrect witness value (c = 99 instead of 25)
-        witness_wrong_val = '{"a": 5, "b": 5, "c": 99}'
-        res_wrong = contract_module.DeterministicCircomCompiler.compile_and_verify(circuit, witness_wrong_val)
-        self.assertFalse(res_wrong["verified"])
-        self.assertEqual(res_wrong["stage"], "CONSTRAINT_EVALUATION")
-        self.assertTrue(any("failed" in line or "FAILED" in line for line in res_wrong["trace"]))
-        self.assertIn("failed", res_wrong["reason"])
-
-        # 2. Adversarial: Arbitrary text file (not JSON/structured)
-        witness_arbitrary = "This is some arbitrary code or comment describing a witness but not executing one."
-        res_arbitrary = contract_module.DeterministicCircomCompiler.compile_and_verify(circuit, witness_arbitrary)
-        self.assertFalse(res_arbitrary["verified"])
-        self.assertEqual(res_arbitrary["stage"], "WITNESS_PARSING")
-        self.assertIn("Witness verification failed", res_arbitrary["reason"])
-
-        # 3. Adversarial: Missing mandatory input signal 'b'
-        witness_missing = '{"a": 5, "c": 25}'
-        res_missing = contract_module.DeterministicCircomCompiler.compile_and_verify(circuit, witness_missing)
-        self.assertFalse(res_missing["verified"])
-        self.assertEqual(res_missing["stage"], "CONSTRAINT_EVALUATION")
-        self.assertIn("does not supply values for input signals: b", res_missing["reason"])
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
