@@ -1,32 +1,53 @@
-# React + TypeScript + Vite
+# ZeroTruthProof Frontend dApp
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Web3 Matrix Terminal interface for **ZeroTruthProof** — an autonomous ZK-SNARK circuit audit escrow and arbitration protocol built on GenLayer.
 
-Currently, two official plugins are available:
+- **Production URL:** [https://zero-truth-proof-genlayer.vercel.app](https://zero-truth-proof-genlayer.vercel.app)
+- **Target Network:** GenLayer StudioNet
+- **Connected Contract:** `0xcb192605d8EAd7564bae6B2eb06Ff9588b5e9ab9`
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## Architecture & Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Framework:** React 19 + TypeScript + Vite
+- **Styling:** Tailwind CSS (Quantum Noir theme with Zero-Knowledge Purple & Laser Mint)
+- **Web3 Integration:** `genlayer-js` + Viem + MetaMask (EIP-1193)
+- **Hashing:** Web Crypto API (`crypto.subtle.digest`) for automatic client-side SHA-256 computation
 
-## Expanding the Oxlint configuration
+---
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+## Features
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+1. **Dual Execution Engine:**
+   - **Live Web3 Mode:** Connects to MetaMask on GenLayer StudioNet to trigger real on-chain contract methods (`create_audit_bounty`, `accept_audit_task`, `submit_counterexample`, `raise_dispute`, `finalize_payout`).
+   - **Simulation HUD Mode:** Allows users to preview and test the complete verification workflow without gas fees.
+
+2. **R1CS Circuit & Witness Visualizer:**
+   - Side-by-side inspection of target circuit source code and auditor exploit witness scripts.
+   - Automatic SHA-256 hash pre-calculation on URL input.
+
+3. **Consensus Telemetry Pipeline:**
+   - Visualizes the 4-stage validation lifecycle:
+     - `[1/4] Circuit AST Ingestion & Tokenization`
+     - `[2/4] Signal Constraint Degree & Wire Index Check`
+     - `[3/4] R1CS Matrix Witness Evaluation`
+     - `[4/4] Multi-Validator Consensus Settlement`
+
+4. **24-Hour Dispute Cooling-Off Window:**
+   - Real-time countdown timer tracking when escrow payouts can be finalized or disputed.
+
+---
+
+## Local Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run Vite dev server
+npm run dev
+
+# Build production bundle
+npm run build
 ```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
