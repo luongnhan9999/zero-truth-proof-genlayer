@@ -4,7 +4,7 @@ Web3 Matrix Terminal interface for **ZeroTruthProof** — an autonomous ZK-SNARK
 
 - **Production URL:** [https://zero-truth-proof-genlayer.vercel.app](https://zero-truth-proof-genlayer.vercel.app)
 - **Target Network:** GenLayer StudioNet
-- **Connected Contract:** `0x2Ab04C85AD702DCe5b067Bcd7E4A06ADa6a868CB`
+- **Connected Contract:** `0x09e20A423Acc58258CEAE3c27742D817801CF819`
 
 ---
 

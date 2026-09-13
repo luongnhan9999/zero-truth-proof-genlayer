@@ -6,7 +6,7 @@ import {
   AlertTriangle, 
   CheckCircle, 
   RefreshCw, 
-  Play, 
+  Send, 
   Lock, 
   Clock, 
   LogOut, 
@@ -49,10 +49,10 @@ export default function App() {
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState('');
   const [walletBalance, setWalletBalance] = useState('0');
-  const [selectedRole, setSelectedRole] = useState<'OWNER' | 'AUDITOR' | 'ADMIN'>('OWNER');
+  const [selectedRole, setSelectedRole] = useState<'OWNER' | 'AUDITOR'>('OWNER');
   
   // Smart Contract Info (Default test address, can be configured in UI)
-  const [contractAddress, setContractAddress] = useState('0x2Ab04C85AD702DCe5b067Bcd7E4A06ADa6a868CB');
+  const [contractAddress, setContractAddress] = useState('0x09e20A423Acc58258CEAE3c27742D817801CF819');
   const [tasks, setTasks] = useState<ZKAuditTask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
   
@@ -487,8 +487,8 @@ export default function App() {
   // Action: Create Bounty (payable)
   const handleCreateBounty = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTaskId || !newCircuitUrl || !newCircuitHash || !newFocus || !newProjectName) {
-      alert('Please fill out all fields (including the target circuit hash).');
+    if (!newTaskId || !newCircuitUrl || !newCircuitHash || !newFocus || !newProjectName || !newSourceCommit) {
+      alert('Please fill out all fields including the immutable Git Commit Hash / IPFS CID.');
       return;
     }
 
@@ -510,7 +510,7 @@ export default function App() {
       const hash = await genlayerClient.writeContract({
         address: contractAddress as `0x${string}`,
         functionName: 'create_audit_bounty',
-        args: [newTaskId, newCircuitUrl, newCircuitHash, circuit_framework, constraint_focus, newSourceCommit || 'none'],
+        args: [newTaskId, newCircuitUrl, newCircuitHash, circuit_framework, constraint_focus, newSourceCommit.trim()],
         value: valueWei
       });
       
@@ -742,6 +742,43 @@ export default function App() {
     } catch (err: any) {
       console.error(err);
       addLog(`[CHAIN TX ERROR] resolve_escalation failed: ${err.message || err}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Action: Multi-Validator Consensus Dispute Adjudication
+  const handleResolveDisputeConsensus = async () => {
+    if (!activeTask) return;
+    if (!walletConnected || !genlayerClient) {
+      alert('Connect wallet first.');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      addLog(`[CHAIN TX] Invoking resolve_dispute_consensus for task ${activeTask.id}...`);
+      
+      const hash = await genlayerClient.writeContract({
+        address: contractAddress as `0x${string}`,
+        functionName: 'resolve_dispute_consensus',
+        args: [activeTask.id]
+      });
+      
+      try {
+        await Promise.race([
+          genlayerClient.waitForTransactionReceipt({ hash }),
+          new Promise((_, r) => setTimeout(() => r(new Error('Timeout waiting for finalization')), 15000))
+        ]);
+        addLog(`[CHAIN CONFIRMED] Multi-validator dispute consensus completed.`);
+      } catch (e) {
+        addLog(`[CHAIN WARNING] Consensus arbitration transaction sent.`);
+      }
+      await new Promise(r => setTimeout(r, 2000));
+      await fetchTasksFromContract();
+    } catch (err: any) {
+      console.error(err);
+      addLog(`[CHAIN TX ERROR] resolve_dispute_consensus failed: ${err.message || err}`);
     } finally {
       setIsLoading(false);
     }
@@ -1145,8 +1182,7 @@ export default function App() {
                   <div className="flex gap-2">
                     {[
                       { role: 'OWNER', label: 'Project Owner' },
-                      { role: 'AUDITOR', label: 'ZK Auditor' },
-                      { role: 'ADMIN', label: 'Consensus Admin' }
+                      { role: 'AUDITOR', label: 'ZK Auditor' }
                     ].map(r => (
                       <button
                         key={r.role}
@@ -1221,16 +1257,32 @@ export default function App() {
                       )}
 
                       {activeTask.status === 'DISPUTED' && (
-                        <div className="p-3 border border-rose-950/40 bg-rose-950/10 rounded flex flex-col gap-2">
+                        <div className="p-4 border border-rose-950/50 bg-rose-950/10 rounded flex flex-col gap-3">
                           <span className="font-bold text-rose-400 flex items-center gap-1">
                             <AlertTriangle className="w-4 h-4" /> Active Dispute Registered
                           </span>
-                          <p className="text-slate-400">
+                          <p className="text-slate-400 text-xs">
                             Dispute details: <span className="font-mono text-slate-300">{activeTask.reason}</span>
                           </p>
-                          <p className="text-[11px] text-slate-500 italic mt-1">
-                            Consensus Administrator must arbitrate this escrow split.
-                          </p>
+                          <div className="flex flex-wrap gap-3 items-center mt-2">
+                            <button
+                              type="button"
+                              onClick={handleResolveDisputeConsensus}
+                              disabled={isLoading || !walletConnected}
+                              className="px-4 py-2 bg-gradient-to-r from-purple-800 to-purple-600 hover:from-purple-700 border border-purple-500 text-slate-100 rounded font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 text-xs"
+                            >
+                              <Activity className="w-4 h-4" /> Multi-Validator Consensus Adjudication
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setArbitrationAction('RELEASE'); handleResolveEscalation(); }}
+                              disabled={isLoading || !walletConnected}
+                              className="px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded transition text-xs cursor-pointer disabled:opacity-50"
+                              title="Voluntarily concede and release funds to auditor"
+                            >
+                              Voluntary Release to Auditor
+                            </button>
+                          </div>
                         </div>
                       )}
 
@@ -1258,75 +1310,89 @@ export default function App() {
                             >
                               <Lock className="w-4 h-4 text-purple-200" /> Stake & Accept Audit Task
                             </button>
-                            {!walletConnected && (
-                              <span className="text-[10px] text-rose-400 mt-1 block">Connect your wallet to execute staking transaction.</span>
-                            )}
                           </div>
                         </div>
                       )}
 
-                      {(activeTask.status === 'IN_PROGRESS' || activeTask.status === 'NEEDS_REVISION') && (
-                        <div className="flex flex-col gap-4">
-                          <div className="flex items-center justify-between">
-                            <p className="text-slate-300">
-                              Submit proof of mathematical exploit. Provide a URL pointing to the proof witness script or counterexample representation.
-                            </p>
-                        <span className="text-[10px] text-amber-400 bg-amber-950/20 px-2 py-0.5 border border-amber-900/40 rounded">
-                              ATTEMPT: {activeTask.attempts} / 2 MAX
-                            </span>
-                          </div>
-                          
-                          <form onSubmit={handleSubmitCounterexample} className="flex flex-col gap-3">
-                            <div className="w-full">
-                              <label className="text-[10px] text-slate-500 block font-bold mb-1">POC / WITNESS EXPLOIT URL</label>
+                      {activeTask.status === 'IN_PROGRESS' && (
+                        <form onSubmit={handleSubmitCounterexample} className="flex flex-col gap-3">
+                          <p className="text-slate-300 text-xs">
+                            Submit a counterexample / PoC witness script providing mathematical values that satisfy or break the circuit constraints.
+                          </p>
+                          <div className="flex flex-col gap-2">
+                            <div>
+                              <label className="text-[10px] text-slate-500 block font-bold mb-1">WITNESS SCRIPT HTTP/HTTPS URL</label>
                               <input
                                 type="url"
                                 required
                                 value={exploitUrl}
                                 onChange={(e) => setExploitUrl(e.target.value)}
-                                placeholder="https://github.com/zk-exploit/fake_witness.js"
-                                className="w-full bg-slate-950 border border-purple-950/80 rounded p-2 text-xs font-mono focus:outline-none focus:border-purple-600"
+                                placeholder="https://raw.githubusercontent.com/.../witness.json"
+                                className="w-full bg-slate-950 border border-purple-950/80 rounded p-2 text-xs font-mono focus:outline-none focus:border-purple-600 text-slate-300"
                               />
                             </div>
-                            <div className="w-full">
-                              <label className="text-[10px] text-slate-500 block font-bold mb-1">EXPLOIT WITNESS SHA-256 HASH (AUTO-CALCULATED ON URL INPUT)</label>
+                            <div>
+                              <label className="text-[10px] text-slate-500 block font-bold mb-1">WITNESS SCRIPT SHA-256 HASH</label>
                               <input
                                 type="text"
                                 required
                                 value={exploitHash}
                                 onChange={(e) => setExploitHash(e.target.value)}
-                                placeholder="e.g. 5f4dcc3b5aa765d61d8327deb882cf99..."
-                                className="w-full bg-slate-950 border border-purple-950/80 rounded p-2 text-xs font-mono focus:outline-none focus:border-purple-600"
+                                placeholder="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                                className="w-full bg-slate-950 border border-purple-950/80 rounded p-2 text-xs font-mono focus:outline-none focus:border-purple-600 text-slate-300"
                               />
                             </div>
-                            <div className="flex justify-end">
-                              <button
-                                type="submit"
-                                disabled={isLoading || !walletConnected}
-                                className="px-5 py-2 bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 hover:border-emerald-600 text-emerald-200 rounded font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                              >
-                                {isLoading ? (
-                                  <>
-                                    <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" /> Processing...
-                                  </>
-                                ) : (
-                                  <>
-                                    <Play className="w-4 h-4 text-emerald-400" /> Submit Exploit URL & Hash
-                                  </>
-                                )}
-                              </button>
-                            </div>
+                          </div>
+                          <button
+                            type="submit"
+                            disabled={isLoading || !walletConnected}
+                            className="px-4 py-2 bg-purple-900 hover:bg-purple-800 border border-purple-600 text-purple-200 rounded font-bold transition flex items-center gap-1.5 cursor-pointer self-start disabled:opacity-50 mt-1"
+                          >
+                            <Send className="w-4 h-4" /> Submit Counterexample to Consensus
+                          </button>
+                        </form>
+                      )}
+
+                      {activeTask.status === 'NEEDS_REVISION' && (
+                        <div className="p-4 border border-amber-950/60 bg-amber-950/10 rounded flex flex-col gap-3">
+                          <span className="font-bold text-amber-400 flex items-center gap-1">
+                            <Clock className="w-4 h-4" /> Revision Requested (Attempt {activeTask.attempts}/2)
+                          </span>
+                          <p className="text-slate-400 text-xs">
+                            Reason: <span className="font-mono text-slate-300">{activeTask.reason}</span>
+                          </p>
+                          <form onSubmit={handleSubmitCounterexample} className="flex flex-col gap-2 mt-2">
+                            <input
+                              type="url"
+                              required
+                              value={exploitUrl}
+                              onChange={(e) => setExploitUrl(e.target.value)}
+                              placeholder="Revised witness script URL"
+                              className="w-full bg-slate-950 border border-amber-950/80 rounded p-2 text-xs font-mono text-slate-300"
+                            />
+                            <input
+                              type="text"
+                              required
+                              value={exploitHash}
+                              onChange={(e) => setExploitHash(e.target.value)}
+                              placeholder="Revised SHA-256 hash"
+                              className="w-full bg-slate-950 border border-amber-950/80 rounded p-2 text-xs font-mono text-slate-300"
+                            />
+                            <button
+                              type="submit"
+                              disabled={isLoading || !walletConnected}
+                              className="px-4 py-2 bg-amber-950 hover:bg-amber-900 border border-amber-700 text-amber-200 rounded font-bold transition flex items-center gap-1.5 self-start cursor-pointer mt-1"
+                            >
+                              <Send className="w-4 h-4" /> Resubmit Counterexample (Attempt 2)
+                            </button>
                           </form>
-                          {!walletConnected && (
-                            <span className="text-[10px] text-rose-400 block">Connect your wallet to submit.</span>
-                          )}
                         </div>
                       )}
 
                       {activeTask.status === 'AWAITING_PAYOUT' && (
                         <div className="flex flex-col gap-3">
-                          <p className="text-emerald-400 font-bold flex items-center gap-1.5">
-                            <CheckCircle className="w-4 h-4 text-emerald-400" /> Your exploit counterexample was approved. Finalize window ends in {formatDuration(timeRemaining[activeTask.id] || 0)}.
+                          <p className="text-slate-300 text-xs">
+                            Your counterexample has been mathematically verified on-chain. Finalize release once cooling-off expires.
                           </p>
                           <button
                             type="button"
@@ -1340,66 +1406,38 @@ export default function App() {
                       )}
 
                       {activeTask.status === 'DISPUTED' && (
-                        <p className="text-rose-400 font-bold flex items-center gap-1.5">
-                          <AlertTriangle className="w-4 h-4 text-rose-400" /> Project owner raised a dispute challenge. Escalation under platform admin review.
-                        </p>
+                        <div className="p-4 border border-rose-950/50 bg-rose-950/10 rounded flex flex-col gap-3">
+                          <span className="font-bold text-rose-400 flex items-center gap-1">
+                            <AlertTriangle className="w-4 h-4" /> Active Dispute Registered
+                          </span>
+                          <p className="text-slate-400 text-xs">
+                            Reason: <span className="font-mono text-slate-300">{activeTask.reason}</span>
+                          </p>
+                          <div className="flex flex-wrap gap-3 items-center mt-2">
+                            <button
+                              type="button"
+                              onClick={handleResolveDisputeConsensus}
+                              disabled={isLoading || !walletConnected}
+                              className="px-4 py-2 bg-gradient-to-r from-purple-800 to-purple-600 hover:from-purple-700 border border-purple-500 text-slate-100 rounded font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 text-xs"
+                            >
+                              <Activity className="w-4 h-4" /> Multi-Validator Consensus Adjudication
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setArbitrationAction('REFUND'); handleResolveEscalation(); }}
+                              disabled={isLoading || !walletConnected}
+                              className="px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded transition text-xs cursor-pointer disabled:opacity-50"
+                              title="Voluntarily concede and refund escrow + stake to project owner"
+                            >
+                              Voluntary Refund to Owner
+                            </button>
+                          </div>
+                        </div>
                       )}
 
                       {activeTask.status === 'CLOSED' && (
                         <p className="text-slate-500 italic">
                           Bounty completed. Escrow has been successfully settled and all funds disbursed.
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* ADMIN PANEL */}
-                  {selectedRole === 'ADMIN' && (
-                    <div className="flex flex-col gap-4 font-mono">
-                      {['DISPUTED', 'ESCALATED'].includes(activeTask.status) ? (
-                        <div className="p-4 border border-purple-950/50 bg-slate-900/60 rounded flex flex-col gap-4">
-                          <div>
-                            <span className="text-[10px] text-purple-300 font-bold block mb-1 uppercase">Platform Administration Arbitration Portal</span>
-                            <p className="text-slate-400">
-                              Decide the split allocation payout action for task <span className="font-mono text-purple-400">{activeTask.id}</span>.
-                            </p>
-                          </div>
-                          
-                          <div className="flex flex-wrap gap-4 items-center">
-                            <div className="flex gap-2">
-                              {[
-                                { action: 'RELEASE', label: '100% Release (Auditor Payout)' },
-                                { action: 'REFUND', label: '100% Refund (Owner Payout)' },
-                                { action: 'SPLIT', label: '50/50 Split (Disburse Half)' }
-                              ].map(act => (
-                                <button
-                                  key={act.action}
-                                  type="button"
-                                  onClick={() => setArbitrationAction(act.action as any)}
-                                  className={`text-[10px] px-3 py-1.5 border rounded transition cursor-pointer ${
-                                    arbitrationAction === act.action 
-                                      ? 'bg-purple-900/60 border-purple-600 text-purple-200' 
-                                      : 'border-slate-800 hover:border-slate-700 text-slate-500'
-                                  }`}
-                                >
-                                  {act.label}
-                                </button>
-                              ))}
-                            </div>
-                            
-                            <button
-                              type="button"
-                              onClick={handleResolveEscalation}
-                              disabled={isLoading || !walletConnected}
-                              className="px-4 py-1.5 bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 rounded font-bold transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                            >
-                              Finalize Arbitration
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-slate-500 italic">
-                          This task is not in an ESCALATED or DISPUTED status. Admin arbitration is offline.
                         </p>
                       )}
                     </div>

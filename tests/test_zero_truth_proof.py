@@ -58,6 +58,13 @@ class MockGL:
                 raise MockUserError("Consensus Disagreement")
             return res
 
+    class evm:
+        @staticmethod
+        def contract_interface(cls):
+            def factory(address):
+                return MockContractStub(address, mock_mod.gl.transfers)
+            return factory
+
     def __init__(self):
         self.transfers = []
         self.message_raw = {"datetime": "2026-08-24T00:00:00+00:00"}
@@ -282,6 +289,36 @@ template HasSub() {
         parsed = contract_module.R1CSConstraintVerifier.parse_circuit(self.CIRCUIT)
         self.assertEqual(parsed["compiler_version"], "2.1.6")
 
+    def test_17_component_instantiation_and_constraint_expansion(self):
+        """Components are instantiated and their internal constraints are compiled and evaluated."""
+        circuit = """pragma circom 2.1.6;
+template Multiplier() {
+    signal input in1;
+    signal input in2;
+    signal output out;
+    out <== in1 * in2;
+}
+
+template Main() {
+    signal input x;
+    signal input y;
+    signal output z;
+    component m = Multiplier();
+    m.in1 <== x;
+    m.in2 <== y;
+    z <== m.out;
+}
+"""
+        parsed = contract_module.R1CSConstraintVerifier.parse_circuit(circuit)
+        self.assertEqual(len(parsed["components"]), 1)
+        self.assertIn("m.in1", parsed["intermediate_signals"])
+        self.assertIn("m.out", parsed["intermediate_signals"])
+        # Verify witness satisfies both component constraint and top-level equality
+        witness = '{"x": 4, "y": 7, "m.in1": 4, "m.in2": 7, "m.out": 28, "z": 28}'
+        res = contract_module.R1CSConstraintVerifier.verify(circuit, witness)
+        self.assertTrue(res["verified"])
+        self.assertEqual(res["stage"], "COMPLETE")
+
 
 class TestContractIntegration(unittest.TestCase):
     """Contract-level integration tests for the full escrow lifecycle."""
@@ -421,7 +458,7 @@ class TestContractIntegration(unittest.TestCase):
         self.gl.message.sender_address = self.owner
         self.gl.message.value = MockBigInt(3000)
         self.contract.create_audit_bounty(
-            tid_long, "https://github.com/long.circom", long_c_hash, "Circom 2.1.6", "Focus", "commit123"
+            tid_long, "https://github.com/long.circom", long_c_hash, "Circom 2.1.6", "Focus", "ae84e88383c38b259163eb1d368e7ec8ff1e792c"
         )
         self.gl.message.sender_address = self.auditor
         self.gl.message.value = MockBigInt(600)
@@ -660,6 +697,80 @@ class TestContractIntegration(unittest.TestCase):
         self.gl.message.sender_address = self.owner
         with self.assertRaises(MockUserError):
             self.contract.raise_dispute(self.tid, "Too late")
+
+    def test_24_source_provenance_unpinned_rejected(self):
+        """Creating a bounty with 'unpinned', empty, or non-hex/IPFS source_commit reverts."""
+        self.gl.message.sender_address = self.owner
+        self.gl.message.value = MockBigInt(1000)
+
+        # Empty / unpinned / none rejected
+        for bad in ["", "unpinned", "none", "not-a-hash"]:
+            with self.assertRaises(MockUserError):
+                self.contract.create_audit_bounty(
+                    f"task_{bad}", "https://github.com/test.circom", self.circuit_hash, "Circom", "Focus", bad
+                )
+
+        # Valid 40-char git commit SHA accepted
+        valid_sha = "ae84e88383c38b259163eb1d368e7ec8ff1e792c"
+        self.contract.create_audit_bounty(
+            "task_valid_sha", "https://github.com/test.circom", self.circuit_hash, "Circom", "Focus", valid_sha
+        )
+        self.assertEqual(self.contract.tasks["task_valid_sha"].source_commit, valid_sha)
+
+    def test_25_safe_transfer_eoa_external_message(self):
+        """Payout uses _safe_transfer which sends value via EVM external message to recipient EOA."""
+        self.gl.message.sender_address = self.auditor
+        self.gl.message.value = MockBigInt(600)
+        self.contract.accept_audit_task(self.tid)
+
+        self.gl.nondet.web.render = lambda url, mode="text": self.circuit_code if "merkle" in url else self.exploit_code
+        self.gl.nondet.exec_prompt = lambda p, response_format="json": {"verdict": "APPROVED", "confidence": 99, "reason": "OK"}
+        self.contract.submit_counterexample(self.tid, "https://p.js", self.exploit_hash)
+
+        # Fast forward past 24h cooling-off period
+        self.gl.message_raw = {"datetime": "2026-08-26T00:00:00+00:00"}
+        self.gl.message.sender_address = self.auditor
+        self.contract.finalize_payout(self.tid)
+
+        self.assertEqual(self.contract.tasks[self.tid].status, "CLOSED")
+        self.assertEqual(len(self.gl.transfers), 1)
+        self.assertEqual(self.gl.transfers[0]["to"], self.auditor)
+        self.assertEqual(self.gl.transfers[0]["value"], 3600)  # escrow 3000 + stake 600
+
+    def test_26_finite_field_edge_cases(self):
+        """R1CS arithmetic edge cases: p-1 wrap, multiplication by 0, modular inverse."""
+        p = contract_module.R1CSConstraintVerifier.BN254_PRIME
+        ev = contract_module.R1CSConstraintVerifier.evaluate_expression
+
+        # p * 1 = 0 mod p
+        self.assertEqual(ev("a * b", {"a": p, "b": 5}), 0)
+        # (p - 1) * (p - 1) = 1 mod p
+        self.assertEqual(ev("a * a", {"a": p - 1}), 1)
+        # Double negation: -(-a) = a
+        self.assertEqual(ev("-(-a)", {"a": 42}), 42)
+
+    def test_27_validator_disagreement_reverts(self):
+        """Validator disagreement in dispute consensus reverts with consensus failure."""
+        task = self.contract.tasks[self.tid]
+        task.status = "DISPUTED"
+        task.auditor = self.auditor
+        task.auditor_stake = MockBigInt(600)
+        self.contract.tasks[self.tid] = task
+
+        # Mock run_nondet to simulate validator disagreement
+        original_run_nondet = self.gl.vm.run_nondet
+        def disagreeing_run_nondet(leader_fn, validator_fn):
+            leader_res = leader_fn()
+            # Validator returns False
+            if not validator_fn(MockReturn(calldata={"action": "REFUND"})):
+                raise MockUserError("Consensus Disagreement: validator rejected leader action")
+            return leader_res
+
+        self.gl.vm.run_nondet = disagreeing_run_nondet
+        self.gl.message.sender_address = self.owner
+        with self.assertRaises(MockUserError):
+            self.contract.resolve_dispute_consensus(self.tid)
+        self.gl.vm.run_nondet = original_run_nondet
 
 
 if __name__ == "__main__":

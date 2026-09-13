@@ -7,6 +7,19 @@ import json
 # SOURCE_REPO: https://github.com/luongnhan9999/zero-truth-proof-genlayer
 # SOURCE_COMMIT: ae84e88383c38b259163eb1d368e7ec8ff1e792c
 
+@gl.evm.contract_interface
+class _Recipient:
+    """EVM external message interface required by GenLayer to send GEN to EOAs."""
+    class View:
+        pass
+    class Write:
+        pass
+
+def _safe_transfer(to_address: str, amount: bigint) -> None:
+    """Safely transfer GEN to an EOA or contract address via GenLayer external message."""
+    if amount > bigint(0):
+        _Recipient(Address(to_address)).emit_transfer(value=u256(amount))
+
 @allow_storage
 @dataclass
 class ZKAuditTask:
@@ -282,13 +295,34 @@ class R1CSConstraintVerifier:
             result["compiler_version"] = pragma_match.group(1)
 
         # Extract templates
-        tmpl_matches = re.findall(r"template\s+([a-zA-Z_]\w*)\s*\(([^)]*)\)", code)
-        if not tmpl_matches:
+        # Extract template bodies to enable component expansion
+        # Match template Name(params) { ... }
+        template_bodies = {}
+        tmpl_body_matches = re.finditer(r"template\s+([a-zA-Z_]\w*)\s*\(([^)]*)\)\s*\{", code)
+        for m in tmpl_body_matches:
+            t_name = m.group(1)
+            t_params = m.group(2).strip()
+            result["templates"].append({"name": t_name, "params": t_params})
+            
+            # Find matching closing brace for the template
+            start_brace = m.end() - 1
+            depth = 0
+            end_brace = -1
+            for idx in range(start_brace, len(code)):
+                if code[idx] == '{':
+                    depth += 1
+                elif code[idx] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end_brace = idx
+                        break
+            if end_brace != -1:
+                template_bodies[t_name] = code[start_brace+1:end_brace]
+
+        if not result["templates"]:
             result["valid_syntax"] = False
             result["errors"].append("No template definition found in circuit source")
             return result
-        for name, params in tmpl_matches:
-            result["templates"].append({"name": name, "params": params.strip()})
 
         # Extract component declarations: component name = Template(args)
         comp_matches = re.findall(r"component\s+([a-zA-Z_]\w*)\s*=\s*([a-zA-Z_]\w*)\s*\(", code)
@@ -296,25 +330,28 @@ class R1CSConstraintVerifier:
             result["components"].append({"name": comp_name, "template": comp_tmpl})
 
         # Extract signal declarations (with array expansion)
-        def extract_signals(keyword):
+        def extract_signals(keyword, search_code):
             """Extract signals including array declarations like signal input a[4]."""
             signals = []
-            # Simple signals: signal input x
-            simple = re.findall(r"signal\s+" + keyword + r"\s+([a-zA-Z_]\w*)(?:\s*;|\s*,)", code)
+            simple = re.findall(r"signal\s+" + keyword + r"\s+([a-zA-Z_]\w*)(?:\s*;|\s*,)", search_code)
             signals.extend(simple)
-            # Array signals: signal input a[4]
-            array = re.findall(r"signal\s+" + keyword + r"\s+([a-zA-Z_]\w*)\s*\[(\d+)\]", code)
+            array = re.findall(r"signal\s+" + keyword + r"\s+([a-zA-Z_]\w*)\s*\[(\d+)\]", search_code)
             for name, size in array:
                 for i in range(int(size)):
                     signals.append(f"{name}[{i}]")
             return signals
 
-        result["input_signals"] = extract_signals("input")
-        result["output_signals"] = extract_signals("output")
+        # Determine main template name: component main = Template(), or last template in file
+        main_comp_match = re.search(r"component\s+main\s*=\s*([a-zA-Z_]\w*)\s*\(", code)
+        main_tmpl_name = main_comp_match.group(1) if main_comp_match else (result["templates"][-1]["name"] if result["templates"] else "")
+        main_code = template_bodies.get(main_tmpl_name, code) if len(result["templates"]) > 1 else code
+
+        result["input_signals"] = extract_signals("input", main_code)
+        result["output_signals"] = extract_signals("output", main_code)
 
         # Intermediate signals (both simple and array)
-        all_simple = re.findall(r"signal\s+([a-zA-Z_]\w*)(?:\s*;|\s*,)", code)
-        all_array = re.findall(r"signal\s+([a-zA-Z_]\w*)\s*\[(\d+)\]", code)
+        all_simple = re.findall(r"signal\s+([a-zA-Z_]\w*)(?:\s*;|\s*,)", main_code)
+        all_array = re.findall(r"signal\s+([a-zA-Z_]\w*)\s*\[(\d+)\]", main_code)
         known = set(result["input_signals"]) | set(result["output_signals"]) | {"input", "output"}
         intermediate = []
         for s in all_simple:
@@ -329,14 +366,8 @@ class R1CSConstraintVerifier:
                     known.add(sig)
         result["intermediate_signals"] = intermediate
 
-        if not result["input_signals"]:
-            result["valid_syntax"] = False
-            result["errors"].append("Circuit declares no input signals")
-            return result
-
-        # Extract constraint and assignment statements
-        # Split on semicolons, then classify each statement
-        statements = re.findall(r"([^;{}\n][^;]*(?:<==|==>|===)[^;]*);", code)
+        # Extract top-level constraint and assignment statements from root/main template
+        statements = re.findall(r"([^;{}\n][^;]*(?:<==|==>|===)[^;]*);", main_code)
         for raw_stmt in statements:
             stmt = raw_stmt.strip()
             if not stmt:
@@ -366,6 +397,70 @@ class R1CSConstraintVerifier:
                     "lhs_expr": parts[0].strip(), "rhs_expr": parts[1].strip(),
                     "source": stmt
                 })
+
+        # Instantiate component templates: compile sub-circuit constraints into main constraint system
+        for comp in result["components"]:
+            c_name = comp["name"]
+            c_tmpl = comp["template"]
+            if c_tmpl in template_bodies:
+                tmpl_code = template_bodies[c_tmpl]
+                # Discover sub-signals
+                sub_inputs = extract_signals("input", tmpl_code)
+                sub_outputs = extract_signals("output", tmpl_code)
+                for s in sub_inputs:
+                    qualified = f"{c_name}.{s}"
+                    if qualified not in result["intermediate_signals"]:
+                        result["intermediate_signals"].append(qualified)
+                for s in sub_outputs:
+                    qualified = f"{c_name}.{s}"
+                    if qualified not in result["intermediate_signals"]:
+                        result["intermediate_signals"].append(qualified)
+
+                # Extract sub-constraints and qualify signals with comp_name prefix
+                sub_stmts = re.findall(r"([^;{}\n][^;]*(?:<==|==>|===)[^;]*);", tmpl_code)
+                for raw_s in sub_stmts:
+                    s_stmt = raw_s.strip()
+                    if not s_stmt:
+                        continue
+                    
+                    def qualify_tokens(expr_str):
+                        # Qualify bare signal identifiers in template with c_name.sig
+                        # Avoid numbers, keywords, and already qualified signals
+                        toks = re.split(r'(\b[a-zA-Z_]\w*(?:\[\d+\])?\b)', expr_str)
+                        out_toks = []
+                        for t in toks:
+                            if t and t[0].isalpha() or (t and t.startswith('_')):
+                                base = t.split('[')[0]
+                                if base not in ["signal", "input", "output", "component", "var"] and not base.isdigit():
+                                    out_toks.append(f"{c_name}.{t}")
+                                else:
+                                    out_toks.append(t)
+                            else:
+                                out_toks.append(t)
+                        return "".join(out_toks)
+
+                    if "<==" in s_stmt:
+                        p = s_stmt.split("<==", 1)
+                        t_target = f"{c_name}.{p[0].strip()}"
+                        t_expr   = qualify_tokens(p[1].strip())
+                        result["assignments"].append({"target": t_target, "expr": t_expr})
+                        result["r1cs_constraints"].append({
+                            "lhs_expr": t_target, "rhs_expr": t_expr,
+                            "source": f"[{c_name}] {t_target} <== {t_expr}"
+                        })
+                    elif "===" in s_stmt:
+                        p = s_stmt.split("===", 1)
+                        t_lhs = qualify_tokens(p[0].strip())
+                        t_rhs = qualify_tokens(p[1].strip())
+                        result["r1cs_constraints"].append({
+                            "lhs_expr": t_lhs, "rhs_expr": t_rhs,
+                            "source": f"[{c_name}] {t_lhs} === {t_rhs}"
+                        })
+
+        if not result["input_signals"]:
+            result["valid_syntax"] = False
+            result["errors"].append("Circuit declares no input signals")
+            return result
 
         if not result["r1cs_constraints"]:
             result["valid_syntax"] = False
@@ -519,32 +614,47 @@ class R1CSConstraintVerifier:
                 "trace": trace
             }
 
-        # ── Stage 4: Propagate assignments (compute intermediate/output signals) ──
-        for assign in circuit["assignments"]:
-            target = assign["target"]
-            expr   = assign["expr"]
-            try:
-                computed = R1CSConstraintVerifier.evaluate_expression(expr, signal_values)
-                if target in witness["signals"]:
-                    # Witness provides an explicit value — record it but we will
-                    # verify it against the constraint in Stage 5
-                    signal_values[target] = witness["signals"][target]
-                    trace.append(
-                        f"  signal '{target}': witness declares {witness['signals'][target]}, "
-                        f"circuit computes {computed} from ({expr})"
-                    )
-                else:
-                    signal_values[target] = computed
-                    trace.append(f"  signal '{target}' = {computed}  (from: {expr})")
-            except Exception as e:
-                return {
-                    "verified": False,
-                    "stage": "SIGNAL_PROPAGATION",
-                    "reason": f"Failed to evaluate assignment '{target} <== {expr}': {str(e)}",
-                    "circuit": circuit,
-                    "witness": witness,
-                    "trace": trace
-                }
+        # ── Stage 4: Propagate assignments (multi-pass topological propagation) ──
+        unresolved = list(circuit["assignments"])
+        max_passes = len(unresolved) + 2
+        last_error = ""
+
+        for _ in range(max_passes):
+            if not unresolved:
+                break
+            remaining = []
+            progress = False
+            for assign in unresolved:
+                target = assign["target"]
+                expr   = assign["expr"]
+                try:
+                    computed = R1CSConstraintVerifier.evaluate_expression(expr, signal_values)
+                    progress = True
+                    if target in witness["signals"]:
+                        signal_values[target] = witness["signals"][target]
+                        trace.append(
+                            f"  signal '{target}': witness declares {witness['signals'][target]}, "
+                            f"circuit computes {computed} from ({expr})"
+                        )
+                    else:
+                        signal_values[target] = computed
+                        trace.append(f"  signal '{target}' = {computed}  (from: {expr})")
+                except Exception as e:
+                    last_error = f"Failed to evaluate assignment '{target} <== {expr}': {str(e)}"
+                    remaining.append(assign)
+            unresolved = remaining
+            if not progress and unresolved:
+                break
+
+        if unresolved:
+            return {
+                "verified": False,
+                "stage": "SIGNAL_PROPAGATION",
+                "reason": last_error or f"Unresolved signal dependencies in {len(unresolved)} assignment(s)",
+                "circuit": circuit,
+                "witness": witness,
+                "trace": trace
+            }
 
         # ── Stage 5: R1CS constraint verification ──
         # For each constraint "L === R", verify that eval(L) == eval(R).
@@ -611,12 +721,11 @@ REVISION_TIMEOUT_SEC = 604800    # 7 days: auto-expire revision window
 DISPUTE_TIMEOUT_SEC = 2592000    # 30 days: auto-split fallback if dispute unresolved
 
 class Contract(gl.Contract):
-    platform_admin: str
     tasks: TreeMap[str, ZKAuditTask]
     task_ids: DynArray[str]
 
     def __init__(self):
-        self.platform_admin = str(gl.message.sender_address).lower()
+        pass
 
     def _get_current_timestamp(self) -> bigint:
         """Derive trusted execution timestamp strictly from transaction context."""
@@ -685,9 +794,19 @@ class Contract(gl.Contract):
         if not circuit_hash or len(circuit_hash.strip()) != 64:
             raise UserError("Valid SHA-256 target circuit hash requirement not met")
 
+        # Enforce strict immutable source provenance (Git commit hex or IPFS CID)
+        s_commit = source_commit.strip()
+        if not s_commit or s_commit.lower() in ["unpinned", "none", "null", "undefined"]:
+            raise UserError("Mandatory source_commit required: must pin exact immutable commit hash (40-hex Git SHA / 64-hex SHA-256) or IPFS CID (Qm/bafy)")
+        
+        is_hex = all(c in "0123456789abcdefABCDEF" for c in s_commit)
+        is_ipfs = s_commit.startswith("Qm") or s_commit.startswith("bafy")
+        if not ((is_hex and len(s_commit) in [40, 64]) or is_ipfs):
+            raise UserError(f"Invalid source_commit '{s_commit}': must be a 40-char Git SHA, 64-char hex hash, or IPFS CID")
+
         caller = str(gl.message.sender_address).lower()
         now = self._get_current_timestamp()
-        commit_pinned = source_commit.strip() if source_commit and source_commit.strip() != "none" else "unpinned"
+        commit_pinned = s_commit
         
         self.tasks[task_id] = ZKAuditTask(
             project_owner=caller,
@@ -888,7 +1007,7 @@ Respond ONLY with valid JSON:
                 total_refund = task.escrow_amount + task.auditor_stake
                 task.escrow_amount = bigint(0)
                 task.auditor_stake = bigint(0)
-                gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(total_refund))
+                _safe_transfer(task.project_owner, total_refund)
         else:
             task.status = "ESCALATED"
 
@@ -941,12 +1060,12 @@ Respond ONLY with valid JSON:
         task.auditor_stake = bigint(0)
 
         if task.verdict == "APPROVED":
-            gl.get_contract_at(Address(task.auditor)).emit_transfer(value=u256(escrow + stake))
+            _safe_transfer(task.auditor, escrow + stake)
         elif task.verdict == "PARTIAL":
             half = escrow // bigint(2)
             rem = escrow - half
-            gl.get_contract_at(Address(task.auditor)).emit_transfer(value=u256(half + stake))
-            gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(rem))
+            _safe_transfer(task.auditor, half + stake)
+            _safe_transfer(task.project_owner, rem)
 
         self.tasks[task_id] = task
 
@@ -974,7 +1093,7 @@ Respond ONLY with valid JSON:
         self.tasks[task_id] = task
 
         if escrow > bigint(0):
-            gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(escrow))
+            _safe_transfer(task.project_owner, escrow)
 
     @gl.public.write
     def recover_expired_task(self, task_id: str) -> None:
@@ -1006,9 +1125,9 @@ Respond ONLY with valid JSON:
             task.reason = "Expired: auditor abandoned task during IN_PROGRESS"
             self.tasks[task_id] = task
             if escrow > bigint(0):
-                gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(escrow))
+                _safe_transfer(task.project_owner, escrow)
             if stake > bigint(0):
-                gl.get_contract_at(Address(task.auditor)).emit_transfer(value=u256(stake))
+                _safe_transfer(task.auditor, stake)
 
         elif task.status == "NEEDS_REVISION":
             ref_time = task.payout_ready_at if task.payout_ready_at > bigint(0) else task.accepted_at
@@ -1020,9 +1139,9 @@ Respond ONLY with valid JSON:
             task.reason = "Expired: auditor abandoned revision attempt"
             self.tasks[task_id] = task
             if escrow > bigint(0):
-                gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(escrow))
+                _safe_transfer(task.project_owner, escrow)
             if stake > bigint(0):
-                gl.get_contract_at(Address(task.auditor)).emit_transfer(value=u256(stake))
+                _safe_transfer(task.auditor, stake)
 
         elif task.status in ["ESCALATED", "DISPUTED"]:
             ref_time = task.disputed_at if task.disputed_at > bigint(0) else (task.payout_ready_at if task.payout_ready_at > bigint(0) else task.created_at)
@@ -1037,9 +1156,9 @@ Respond ONLY with valid JSON:
             half = escrow // bigint(2)
             rem = escrow - half
             if half + stake > bigint(0):
-                gl.get_contract_at(Address(task.auditor)).emit_transfer(value=u256(half + stake))
+                _safe_transfer(task.auditor, half + stake)
             if rem > bigint(0):
-                gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(rem))
+                _safe_transfer(task.project_owner, rem)
 
         else:
             raise UserError(f"No timeout recovery rule for status {task.status}")
@@ -1112,16 +1231,16 @@ Respond ONLY with valid JSON:
         self.tasks[task_id] = task
 
         if act == "RELEASE":
-            gl.get_contract_at(Address(task.auditor)).emit_transfer(value=u256(escrow + stake))
+            _safe_transfer(task.auditor, escrow + stake)
         elif act == "REFUND":
-            gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(escrow + stake))
+            _safe_transfer(task.project_owner, escrow + stake)
         else: # SPLIT
             half = escrow // bigint(2)
             rem = escrow - half
             if half + stake > bigint(0):
-                gl.get_contract_at(Address(task.auditor)).emit_transfer(value=u256(half + stake))
+                _safe_transfer(task.auditor, half + stake)
             if rem > bigint(0):
-                gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(rem))
+                _safe_transfer(task.project_owner, rem)
 
     @gl.public.write
     def resolve_escalation(self, task_id: str, action: str) -> None:
@@ -1158,9 +1277,9 @@ Respond ONLY with valid JSON:
         self.tasks[task_id] = task
 
         if act == "RELEASE":
-            gl.get_contract_at(Address(task.auditor)).emit_transfer(value=u256(escrow + stake))
+            _safe_transfer(task.auditor, escrow + stake)
         elif act == "REFUND":
-            gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(escrow + stake))
+            _safe_transfer(task.project_owner, escrow + stake)
 
     @gl.public.view
     def get_all_tasks(self) -> str:
