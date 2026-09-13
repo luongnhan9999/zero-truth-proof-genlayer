@@ -115,3 +115,26 @@ npm install
 npm run dev
 ```
 Open `http://localhost:5173` to interact with the dApp.
+
+---
+
+## Live On-Chain Demonstration Evidence (StudioNet)
+
+All smart contract interactions have been executed, validated, and permanently recorded on the GenLayer StudioNet network:
+
+| Scenario / Case | Transaction Type | Transaction Hash | Explorer Link | Resulting State & Verdict |
+| :--- | :--- | :--- | :--- | :--- |
+| **Contract Deployment** | Contract Deploy | `0x7f725c58834721c07ce0e17470d8a495a45313f0c319818335b12743ea6d5a19` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x7f725c58834721c07ce0e17470d8a495a45313f0c319818335b12743ea6d5a19) | Deployed at `0x9a995795a18E43281133C6dB493D822Df7072750` |
+| **R1CS & Slashing** | `create_audit_bounty` | `0xc53cf2bd431d7c66f6884fe6bcb39b56aa709eead4345b008bf42088c2598c97` | [View Tx](https://genlayer-explorer.vercel.app/tx/0xc53cf2bd431d7c66f6884fe6bcb39b56aa709eead4345b008bf42088c2598c97) | Status: `OPEN` (1 GEN escrow) |
+| (`zk-multiplier2-pass-01`) | `accept_audit_task` | `0xe4b82332b5cb12c8d94a49badd03b5c29d968e1175763186f98a9b33f7ce365a` | [View Tx](https://genlayer-explorer.vercel.app/tx/0xe4b82332b5cb12c8d94a49badd03b5c29d968e1175763186f98a9b33f7ce365a) | Status: `IN_PROGRESS` (0.2 GEN stake) |
+| | `submit_counterexample` (1) | `0xbf6a1e474a86c75c58b7e9f1633504ba2c80c7d6e91d7f0443483b754d5e2ac2` | [View Tx](https://genlayer-explorer.vercel.app/tx/0xbf6a1e474a86c75c58b7e9f1633504ba2c80c7d6e91d7f0443483b754d5e2ac2) | Status: `NEEDS_REVISION`, Verdict: `REFUND` (Valid execution != exploit) |
+| | `submit_counterexample` (2) | `0x0372c5ea8229e3cf36564cb9046db5e616005e8890313e5acf73d7a5863e8a96` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x0372c5ea8229e3cf36564cb9046db5e616005e8890313e5acf73d7a5863e8a96) | Status: `CLOSED`, Verdict: `REFUND`, Slashing: 1.2 GEN returned to owner |
+| **Dispute Arbitration** | `create_audit_bounty` | `0xbd6f0ea55af2cb9a569404d917163a0d1d222c8c82ba91e360297395f3f1b71b` | [View Tx](https://genlayer-explorer.vercel.app/tx/0xbd6f0ea55af2cb9a569404d917163a0d1d222c8c82ba91e360297395f3f1b71b) | Status: `OPEN` (1 GEN escrow) |
+| (`zk-multiplier2-1789275549603`) | `accept_audit_task` | `0xc219d6a227d6a6f9795962c2b1b78823b8225095d0ea3bdeee2cef71568369ae` | [View Tx](https://genlayer-explorer.vercel.app/tx/0xc219d6a227d6a6f9795962c2b1b78823b8225095d0ea3bdeee2cef71568369ae) | Status: `IN_PROGRESS` (0.2 GEN stake) |
+| | `submit_counterexample` | `0x475a32d08157edca6e461ee8684a2f5ee7a0000b60a9215bac5d259071291cca` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x475a32d08157edca6e461ee8684a2f5ee7a0000b60a9215bac5d259071291cca) | Status: `ESCALATED`, Verdict: `ESCALATE` (Integrity mismatch) |
+| | `resolve_dispute_consensus` | `0x8249f03c36c23d67275488ae40d9eddca4346c201320b0f32bf1291c205829a6` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x8249f03c36c23d67275488ae40d9eddca4346c201320b0f32bf1291c205829a6) | Status: `CLOSED`, Consensus: `SPLIT` (50/50 non-custodial payout) |
+| **Voluntary Concession** | `create_audit_bounty` | `0xc2937f09cff35637400a43cd4d867cdb651df28738d394cff4dbdfbc25fc18a6` | [View Tx](https://genlayer-explorer.vercel.app/tx/0xc2937f09cff35637400a43cd4d867cdb651df28738d394cff4dbdfbc25fc18a6) | Status: `OPEN` (1 GEN escrow) |
+| (`zk-buggysquare-exploit`) | `accept_audit_task` | `0x93d8e10a5af3247ad2d3105ccf96bfe17643c240d27d7438b0e4fdf78b6dc7fb` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x93d8e10a5af3247ad2d3105ccf96bfe17643c240d27d7438b0e4fdf78b6dc7fb) | Status: `IN_PROGRESS` (0.2 GEN stake) |
+| | `submit_counterexample` | `0x1a59f07ec5221d167f4333aa7a5762ac60bb9236304c06adbdf06a21144e4d49` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x1a59f07ec5221d167f4333aa7a5762ac60bb9236304c06adbdf06a21144e4d49) | Status: `ESCALATED`, Verdict: `ESCALATE` |
+| | `resolve_escalation` (RELEASE)| `0x1b0d2e3b6c549ffbc9a30f309ace594c89736327bfc268dd33f4e09d32ebb854` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x1b0d2e3b6c549ffbc9a30f309ace594c89736327bfc268dd33f4e09d32ebb854) | Status: `CLOSED`, Reason: `Voluntary RELEASE concession by project owner` |
+
