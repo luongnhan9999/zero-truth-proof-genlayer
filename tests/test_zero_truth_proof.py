@@ -371,7 +371,7 @@ class TestContractIntegration(unittest.TestCase):
             self.contract.finalize_payout(self.tid)
 
         # Validator-governed consensus resolves with SPLIT
-        self.gl.nondet.llm.call = lambda p, model="": '{"action": "SPLIT", "confidence": 95, "reason": "Circumstances warrant 50/50 split"}'
+        self.gl.nondet.exec_prompt = lambda p, response_format="json": {"action": "SPLIT", "confidence": 95, "reason": "Circumstances warrant 50/50 split"}
         self.contract.resolve_dispute_consensus(self.tid)
         self.assertEqual(self.contract.tasks[self.tid].status, "CLOSED")
         self.assertEqual(len(self.gl.transfers), 2)
@@ -527,7 +527,7 @@ class TestContractIntegration(unittest.TestCase):
         task.auditor_stake = MockBigInt(600)
         self.contract.tasks[self.tid] = task
 
-        self.gl.nondet.llm.call = lambda p, model="": '{"action": "SPLIT", "confidence": 90, "reason": "Split"}'
+        self.gl.nondet.exec_prompt = lambda p, response_format="json": {"action": "SPLIT", "confidence": 90, "reason": "Split"}
         self.gl.message.sender_address = self.owner
         self.contract.resolve_dispute_consensus(self.tid)
         total_out = sum(t["value"] for t in self.gl.transfers)

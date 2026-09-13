@@ -1,10 +1,11 @@
 # v0.2.18
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
-# SOURCE_REPO: https://github.com/luongnhan9999/zero-truth-proof-genlayer
-# SOURCE_COMMIT: ae84e88383c38b259163eb1d368e7ec8ff1e792c
 from genlayer import *
 from dataclasses import dataclass
 import json
+
+# SOURCE_REPO: https://github.com/luongnhan9999/zero-truth-proof-genlayer
+# SOURCE_COMMIT: ae84e88383c38b259163eb1d368e7ec8ff1e792c
 
 @allow_storage
 @dataclass
@@ -1080,7 +1081,7 @@ Respond ONLY with valid JSON:
                 f"- 'SPLIT': Ambiguous or mitigating circumstances; split escrow 50/50 and return stake to auditor.\n\n"
                 f"Respond with JSON: {{\"action\": \"RELEASE\" | \"REFUND\" | \"SPLIT\", \"confidence\": 0-100, \"reason\": \"explanation\"}}"
             )
-            raw = gl.nondet.llm.call(prompt, model="meta-llama/llama-3-70b-instruct")
+            raw = gl.nondet.exec_prompt(prompt, response_format="json")
             return self._parse_llm_json(str(raw))
 
         def dispute_validator_fn(leader_res) -> bool:
