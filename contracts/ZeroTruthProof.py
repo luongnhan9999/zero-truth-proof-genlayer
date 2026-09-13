@@ -1,4 +1,5 @@
-# v0.2.18
+# SOURCE_REPO: https://github.com/luongnhan9999/zero-truth-proof-genlayer
+# SOURCE_COMMIT: will-be-set-before-deploy
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 from genlayer import *
 from dataclasses import dataclass
@@ -24,6 +25,9 @@ class ZKAuditTask:
     attempts: bigint
     payout_ready_at: bigint
     disputed_at: bigint
+    created_at: bigint     # Timestamp when bounty was created (for timeout recovery)
+    accepted_at: bigint    # Timestamp when auditor accepted (0 if not yet)
+    source_commit: str     # Git commit SHA or IPFS CID pinning exact artifact version
 
 class R1CSConstraintVerifier:
     """
@@ -32,12 +36,23 @@ class R1CSConstraintVerifier:
     Architecture:
       1. Tokenizer  — splits Circom source into typed tokens (no line-level regex)
       2. Signal registry — builds a signal table with wire indices
+         Supports: simple signals, array signals (signal input a[N]),
+         component declarations, and qualified references (comp.signal)
       3. Expression AST — recursive-descent parser respecting operator precedence
       4. R1CS builder — each constraint becomes three linear combinations (A, B, C)
                         such that the R1CS check is: dot(A, w) * dot(B, w) == dot(C, w)
       5. Witness binder — strict JSON-only, every value must be numeric
-      6. Constraint checker — evaluates every R1CS row; any failure → immediate REJECT
+      6. Constraint checker — evaluates every R1CS row over BN254 finite field;
+                              any failure → immediate REJECT
+
+    Finite Field:
+      All arithmetic is performed modulo the BN254 scalar field prime p,
+      matching the field used by Circom's Groth16 / PLONK proof systems.
+      Division uses modular multiplicative inverse (Fermat's little theorem).
     """
+
+    # ── BN254 scalar field prime (Circom / Groth16 / PLONK) ──────────────
+    BN254_PRIME = 21888242871839275222246405745257275088548364400416034343698204186575808495617
 
     # ── Token types ──────────────────────────────────────────────────────
     TOK_NUM    = "NUM"
@@ -45,16 +60,22 @@ class R1CSConstraintVerifier:
     TOK_OP     = "OP"       # +  -  *  /
     TOK_LPAREN = "LPAREN"   # (
     TOK_RPAREN = "RPAREN"   # )
+    TOK_LBRACK = "LBRACK"   # [
+    TOK_RBRACK = "RBRACK"   # ]
     TOK_CASSIGN = "CASSIGN"  # <==
     TOK_CSIGNAL = "CSIGNAL"  # ==>
     TOK_CEQ    = "CEQ"       # ===
     TOK_SEMI   = "SEMI"      # ;
+
     TOK_EOF    = "EOF"
 
     # ── 1. Tokenizer ─────────────────────────────────────────────────────
     @staticmethod
     def _tokenize_expression(expr: str) -> list:
-        """Tokenize an arithmetic expression into a list of (type, value) tuples."""
+        """Tokenize an arithmetic expression into a list of (type, value) tuples.
+        Supports: numbers, identifiers, operators, parentheses,
+        array indexing (a[0]), and component references (comp.signal).
+        """
         tokens = []
         i = 0
         while i < len(expr):
@@ -71,6 +92,12 @@ class R1CSConstraintVerifier:
             elif ch == ')':
                 tokens.append((R1CSConstraintVerifier.TOK_RPAREN, ')'))
                 i += 1
+            elif ch == '[':
+                tokens.append((R1CSConstraintVerifier.TOK_LBRACK, '['))
+                i += 1
+            elif ch == ']':
+                tokens.append((R1CSConstraintVerifier.TOK_RBRACK, ']'))
+                i += 1
             elif ch.isdigit() or (ch == '0' and i + 1 < len(expr) and expr[i + 1] in 'xX'):
                 j = i
                 if ch == '0' and i + 1 < len(expr) and expr[i + 1] in 'xX':
@@ -84,9 +111,18 @@ class R1CSConstraintVerifier:
                 i = j
             elif ch.isalpha() or ch == '_':
                 j = i
-                while j < len(expr) and (expr[j].isalnum() or expr[j] == '_'):
+                while j < len(expr) and (expr[j].isalnum() or expr[j] in '_.'):
                     j += 1
-                tokens.append((R1CSConstraintVerifier.TOK_IDENT, expr[i:j]))
+                name = expr[i:j]
+                # Check for array indexing: ident[N]
+                if j < len(expr) and expr[j] == '[':
+                    k = j + 1
+                    while k < len(expr) and expr[k] != ']':
+                        k += 1
+                    if k < len(expr):
+                        name = expr[i:k+1]  # e.g., "a[0]"
+                        j = k + 1
+                tokens.append((R1CSConstraintVerifier.TOK_IDENT, name))
                 i = j
             else:
                 raise ValueError(f"Unexpected character '{ch}' in expression: {expr}")
@@ -162,17 +198,21 @@ class R1CSConstraintVerifier:
                     raise ValueError(f"Signal '{name}' has no assigned value in the witness")
                 return signal_values[name]
             if node[0] == 'neg':
-                return -R1CSConstraintVerifier._eval_ast(node[1], signal_values)
+                val = R1CSConstraintVerifier._eval_ast(node[1], signal_values)
+                return (-val) % R1CSConstraintVerifier.BN254_PRIME
             op, left, right = node
             lv = R1CSConstraintVerifier._eval_ast(left, signal_values)
             rv = R1CSConstraintVerifier._eval_ast(right, signal_values)
-            if op == '+': return lv + rv
-            if op == '-': return lv - rv
-            if op == '*': return lv * rv
+            p = R1CSConstraintVerifier.BN254_PRIME
+            if op == '+': return (lv + rv) % p
+            if op == '-': return (lv - rv) % p
+            if op == '*': return (lv * rv) % p
             if op == '/':
-                if rv == 0:
+                if rv % p == 0:
                     raise ValueError("Division by zero in constraint expression")
-                return lv // rv
+                # Modular inverse via Fermat's little theorem: rv^(p-2) mod p
+                inv = pow(rv, p - 2, p)
+                return (lv * inv) % p
         raise ValueError(f"Cannot evaluate AST node: {node}")
 
     @staticmethod
@@ -192,7 +232,15 @@ class R1CSConstraintVerifier:
         """
         Parse a Circom circuit into a structured representation.
         Returns: {templates, input_signals, output_signals, intermediate_signals,
-                  r1cs_constraints, assignments, valid_syntax, errors}
+                  r1cs_constraints, assignments, components, includes,
+                  compiler_version, valid_syntax, errors}
+
+        Supports:
+          - Array signals: signal input a[4] → a[0], a[1], a[2], a[3]
+          - Component declarations: component c = TemplateX()
+          - Include directives: include "lib.circom"
+          - Pragma version pinning: pragma circom 2.1.6
+          - Dot-qualified references: comp.out, comp.in
 
         Each r1cs_constraint is: {"lhs_expr": str, "rhs_expr": str, "source": str}
         representing the equation lhs_expr === rhs_expr.
@@ -205,6 +253,9 @@ class R1CSConstraintVerifier:
             "intermediate_signals": [],
             "r1cs_constraints": [],  # list of {"lhs_expr", "rhs_expr", "source"}
             "assignments": [],       # list of {"target", "expr"} for signal propagation
+            "components": [],        # list of {"name", "template"}
+            "includes": [],          # list of included file paths
+            "compiler_version": "",  # pragma circom version string
             "valid_syntax": True,
             "errors": []
         }
@@ -213,11 +264,20 @@ class R1CSConstraintVerifier:
         code = re.sub(r"/\*.*?\*/", "", circuit_code, flags=re.DOTALL)
         code = re.sub(r"//[^\n]*", "", code)
 
-        # Validate pragma
-        if "pragma circom" not in code:
-            result["valid_syntax"] = False
-            result["errors"].append("Missing 'pragma circom' directive — not a valid Circom circuit")
-            return result
+        # Extract include directives
+        include_matches = re.findall(r'include\s+"([^"]+)"', code)
+        result["includes"] = include_matches
+
+        # Validate and extract pragma version
+        pragma_match = re.search(r"pragma\s+circom\s+(\d+\.\d+(?:\.\d+)?)", code)
+        if not pragma_match:
+            if "pragma circom" not in code:
+                result["valid_syntax"] = False
+                result["errors"].append("Missing 'pragma circom' directive — not a valid Circom circuit")
+                return result
+            result["compiler_version"] = "unknown"
+        else:
+            result["compiler_version"] = pragma_match.group(1)
 
         # Extract templates
         tmpl_matches = re.findall(r"template\s+([a-zA-Z_]\w*)\s*\(([^)]*)\)", code)
@@ -228,12 +288,44 @@ class R1CSConstraintVerifier:
         for name, params in tmpl_matches:
             result["templates"].append({"name": name, "params": params.strip()})
 
-        # Extract signal declarations
-        result["input_signals"]  = re.findall(r"signal\s+input\s+([a-zA-Z_]\w*)", code)
-        result["output_signals"] = re.findall(r"signal\s+output\s+([a-zA-Z_]\w*)", code)
-        all_bare = re.findall(r"signal\s+([a-zA-Z_]\w*)", code)
+        # Extract component declarations: component name = Template(args)
+        comp_matches = re.findall(r"component\s+([a-zA-Z_]\w*)\s*=\s*([a-zA-Z_]\w*)\s*\(", code)
+        for comp_name, comp_tmpl in comp_matches:
+            result["components"].append({"name": comp_name, "template": comp_tmpl})
+
+        # Extract signal declarations (with array expansion)
+        def extract_signals(keyword):
+            """Extract signals including array declarations like signal input a[4]."""
+            signals = []
+            # Simple signals: signal input x
+            simple = re.findall(r"signal\s+" + keyword + r"\s+([a-zA-Z_]\w*)(?:\s*;|\s*,)", code)
+            signals.extend(simple)
+            # Array signals: signal input a[4]
+            array = re.findall(r"signal\s+" + keyword + r"\s+([a-zA-Z_]\w*)\s*\[(\d+)\]", code)
+            for name, size in array:
+                for i in range(int(size)):
+                    signals.append(f"{name}[{i}]")
+            return signals
+
+        result["input_signals"] = extract_signals("input")
+        result["output_signals"] = extract_signals("output")
+
+        # Intermediate signals (both simple and array)
+        all_simple = re.findall(r"signal\s+([a-zA-Z_]\w*)(?:\s*;|\s*,)", code)
+        all_array = re.findall(r"signal\s+([a-zA-Z_]\w*)\s*\[(\d+)\]", code)
         known = set(result["input_signals"]) | set(result["output_signals"]) | {"input", "output"}
-        result["intermediate_signals"] = [s for s in all_bare if s not in known]
+        intermediate = []
+        for s in all_simple:
+            if s not in known:
+                intermediate.append(s)
+                known.add(s)
+        for name, size in all_array:
+            for i in range(int(size)):
+                sig = f"{name}[{i}]"
+                if sig not in known:
+                    intermediate.append(sig)
+                    known.add(sig)
+        result["intermediate_signals"] = intermediate
 
         if not result["input_signals"]:
             result["valid_syntax"] = False
@@ -330,17 +422,18 @@ class R1CSConstraintVerifier:
                 result["valid"] = False
                 result["error"] = f"Signal '{key}' has boolean value {val} — must be numeric (int/float)"
                 return result
+            p = R1CSConstraintVerifier.BN254_PRIME
             if isinstance(val, int):
-                result["signals"][key] = val
+                result["signals"][key] = val % p
             elif isinstance(val, float):
-                result["signals"][key] = int(val)
+                result["signals"][key] = int(val) % p
             elif isinstance(val, str):
                 # Allow hex strings like "0xff" and plain integer strings
                 try:
                     if val.startswith("0x") or val.startswith("0X"):
-                        result["signals"][key] = int(val, 16)
+                        result["signals"][key] = int(val, 16) % p
                     else:
-                        result["signals"][key] = int(val)
+                        result["signals"][key] = int(val) % p
                 except ValueError:
                     result["valid"] = False
                     result["error"] = f"Signal '{key}' has non-numeric string value: '{val}'"
@@ -379,12 +472,16 @@ class R1CSConstraintVerifier:
             }
 
         trace.append(
-            f"Circuit compiled: {len(circuit['templates'])} template(s), "
+            f"Circuit compiled (Circom {circuit.get('compiler_version', 'unknown')}): "
+            f"{len(circuit['templates'])} template(s), "
+            f"{len(circuit.get('components', []))} component(s), "
+            f"{len(circuit.get('includes', []))} include(s), "
             f"{len(circuit['input_signals'])} input(s), "
             f"{len(circuit['output_signals'])} output(s), "
             f"{len(circuit['intermediate_signals'])} intermediate(s), "
-            f"{len(circuit['r1cs_constraints'])} R1CS constraint(s)"
+            f"{len(circuit['r1cs_constraints'])} R1CS constraint(s) over BN254 scalar field"
         )
+
 
         # ── Stage 2: Witness parsing ──
         witness = R1CSConstraintVerifier.parse_witness(witness_text)
@@ -505,13 +602,18 @@ class R1CSConstraintVerifier:
             "trace": trace
         }
 
+# ── Non-custodial Timeout Boundaries (in seconds) ────────────────────────────
+OPEN_TIMEOUT = bigint(2592000)       # 30 days: owner can cancel if unaccepted
+PROGRESS_TIMEOUT = bigint(1209600)   # 14 days: auto-expire if auditor abandons IN_PROGRESS
+REVISION_TIMEOUT = bigint(604800)    # 7 days: auto-expire revision window
+DISPUTE_TIMEOUT = bigint(2592000)    # 30 days: auto-split fallback if dispute unresolved
+
 class Contract(gl.Contract):
-    platform_admin: str
     tasks: TreeMap[str, ZKAuditTask]
     task_ids: DynArray[str]
 
     def __init__(self):
-        self.platform_admin = str(gl.message.sender_address).lower()
+        pass
 
     def _get_current_timestamp(self) -> bigint:
         """Derive trusted execution timestamp strictly from transaction context."""
@@ -566,7 +668,8 @@ class Contract(gl.Contract):
         circuit_url: str,
         circuit_hash: str,
         circuit_framework: str,
-        constraint_focus: str
+        constraint_focus: str,
+        source_commit: str = ""
     ) -> None:
         if task_id in self.tasks:
             raise UserError(f"Audit task ID {task_id} already exists")
@@ -580,6 +683,8 @@ class Contract(gl.Contract):
             raise UserError("Valid SHA-256 target circuit hash requirement not met")
 
         caller = str(gl.message.sender_address).lower()
+        now = self._get_current_timestamp()
+        commit_pinned = source_commit.strip() if source_commit and source_commit.strip() != "none" else "unpinned"
         
         self.tasks[task_id] = ZKAuditTask(
             project_owner=caller,
@@ -598,7 +703,10 @@ class Contract(gl.Contract):
             confidence=bigint(0),
             attempts=bigint(0),
             payout_ready_at=bigint(0),
-            disputed_at=bigint(0)
+            disputed_at=bigint(0),
+            created_at=now,
+            accepted_at=bigint(0),
+            source_commit=commit_pinned
         )
         self.task_ids.append(task_id)
 
@@ -622,6 +730,7 @@ class Contract(gl.Contract):
         task.auditor = caller
         task.auditor_stake = gl.message.value
         task.status = "IN_PROGRESS"
+        task.accepted_at = self._get_current_timestamp()
         self.tasks[task_id] = task
 
     @gl.public.write
@@ -685,10 +794,12 @@ class Contract(gl.Contract):
             if "circom" in framework_str.lower():
                 r1cs_result = R1CSConstraintVerifier.verify(c_text, e_text)
                 if not r1cs_result["verified"]:
+                    stage = r1cs_result.get("stage", "")
+                    verdict = "ESCALATE" if stage == "CIRCUIT_COMPILATION" else "REFUND"
                     return {
-                        "verdict": "REFUND" if r1cs_result["stage"] == "WITNESS_PARSING" else "ESCALATE",
+                        "verdict": verdict,
                         "confidence": 100,
-                        "reason": f"R1CS verification: {r1cs_result['reason']}"
+                        "reason": f"R1CS verification ({stage}): {r1cs_result['reason']}"
                     }
                 eval_trace = r1cs_result["trace"]
             else:
@@ -837,8 +948,186 @@ Respond ONLY with valid JSON:
         self.tasks[task_id] = task
 
     @gl.public.write
+    def cancel_bounty(self, task_id: str) -> None:
+        """Owner recovers escrow from an unaccepted OPEN bounty after OPEN_TIMEOUT (30 days)."""
+        if task_id not in self.tasks:
+            raise UserError("Task not found")
+        task = self.tasks[task_id]
+        if task.status != "OPEN":
+            raise UserError("Only OPEN bounties can be cancelled")
+
+        caller = str(gl.message.sender_address).lower()
+        if caller != task.project_owner:
+            raise UserError("Only project owner can cancel bounty")
+
+        now = self._get_current_timestamp()
+        if now < task.created_at + OPEN_TIMEOUT:
+            raise UserError("Bounty cancellation timeout has not elapsed yet (must wait 30 days from creation)")
+
+        escrow = task.escrow_amount
+        task.status = "CLOSED"
+        task.escrow_amount = bigint(0)
+        task.reason = "Cancelled by project owner after OPEN timeout"
+        self.tasks[task_id] = task
+
+        if escrow > bigint(0):
+            gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(escrow))
+
+    @gl.public.write
+    def recover_expired_task(self, task_id: str) -> None:
+        """
+        Non-custodial timeout recovery for abandoned tasks in IN_PROGRESS,
+        NEEDS_REVISION, ESCALATED, or DISPUTED status.
+        Guarantees escrow and stake funds cannot remain indefinitely locked.
+        """
+        if task_id not in self.tasks:
+            raise UserError("Task not found")
+        task = self.tasks[task_id]
+        if task.status == "CLOSED":
+            raise UserError("Task is already closed")
+
+        caller = str(gl.message.sender_address).lower()
+        if caller != task.project_owner and caller != task.auditor:
+            raise UserError("Unauthorized caller for timeout recovery")
+
+        now = self._get_current_timestamp()
+        escrow = task.escrow_amount
+        stake = task.auditor_stake
+
+        if task.status == "IN_PROGRESS":
+            if now < task.accepted_at + PROGRESS_TIMEOUT:
+                raise UserError("IN_PROGRESS task timeout has not elapsed yet (14 days)")
+            task.status = "CLOSED"
+            task.escrow_amount = bigint(0)
+            task.auditor_stake = bigint(0)
+            task.reason = "Expired: auditor abandoned task during IN_PROGRESS"
+            self.tasks[task_id] = task
+            if escrow > bigint(0):
+                gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(escrow))
+            if stake > bigint(0):
+                gl.get_contract_at(Address(task.auditor)).emit_transfer(value=u256(stake))
+
+        elif task.status == "NEEDS_REVISION":
+            ref_time = task.payout_ready_at if task.payout_ready_at > bigint(0) else task.accepted_at
+            if now < ref_time + REVISION_TIMEOUT:
+                raise UserError("NEEDS_REVISION timeout has not elapsed yet (7 days)")
+            task.status = "CLOSED"
+            task.escrow_amount = bigint(0)
+            task.auditor_stake = bigint(0)
+            task.reason = "Expired: auditor abandoned revision attempt"
+            self.tasks[task_id] = task
+            if escrow > bigint(0):
+                gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(escrow))
+            if stake > bigint(0):
+                gl.get_contract_at(Address(task.auditor)).emit_transfer(value=u256(stake))
+
+        elif task.status in ["ESCALATED", "DISPUTED"]:
+            ref_time = task.disputed_at if task.disputed_at > bigint(0) else (task.payout_ready_at if task.payout_ready_at > bigint(0) else task.created_at)
+            if now < ref_time + DISPUTE_TIMEOUT:
+                raise UserError("Dispute resolution timeout has not elapsed yet (30 days)")
+            # Non-custodial 50/50 fallback split
+            task.status = "CLOSED"
+            task.escrow_amount = bigint(0)
+            task.auditor_stake = bigint(0)
+            task.reason = "Expired: 30-day non-custodial 50/50 dispute resolution fallback applied"
+            self.tasks[task_id] = task
+            half = escrow // bigint(2)
+            rem = escrow - half
+            if half + stake > bigint(0):
+                gl.get_contract_at(Address(task.auditor)).emit_transfer(value=u256(half + stake))
+            if rem > bigint(0):
+                gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(rem))
+
+        else:
+            raise UserError(f"No timeout recovery rule for status {task.status}")
+
+    @gl.public.write
+    def resolve_dispute_consensus(self, task_id: str) -> None:
+        """
+        Validator-governed adjudication for ESCALATED or DISPUTED tasks.
+        Multi-validator non-deterministic consensus inspects the dispute and votes
+        on RELEASE (auditor), REFUND (project owner), or SPLIT (50/50).
+        """
+        if task_id not in self.tasks:
+            raise UserError("Task not found")
+        task = self.tasks[task_id]
+        if task.status not in ["ESCALATED", "DISPUTED"]:
+            raise UserError("Task is not in ESCALATED or DISPUTED status")
+
+        caller = str(gl.message.sender_address).lower()
+        if caller != task.project_owner and caller != task.auditor:
+            raise UserError("Only project owner or auditor can invoke dispute adjudication")
+
+        circuit_str = task.circuit_url
+        exploit_str = task.proof_of_exploit_url
+        framework_str = task.circuit_framework
+        focus_str = task.constraint_focus
+        dispute_reason = task.reason
+
+        def dispute_leader_fn() -> dict:
+            prompt = (
+                f"You are an impartial decentralized arbitration validator resolving a disputed ZK circuit audit bounty.\n\n"
+                f"Task ID: {task_id}\n"
+                f"Framework: {framework_str}\n"
+                f"Focus: {focus_str}\n"
+                f"Original Verdict: {task.verdict}\n"
+                f"Dispute Details: {dispute_reason}\n\n"
+                f"Determine the fair outcome:\n"
+                f"- 'RELEASE': Auditor's counterexample is mathematically valid; release escrow + stake to auditor.\n"
+                f"- 'REFUND': Auditor's counterexample is invalid or fraudulent; return escrow + stake to project owner.\n"
+                f"- 'SPLIT': Ambiguous or mitigating circumstances; split escrow 50/50 and return stake to auditor.\n\n"
+                f"Respond with JSON: {{\"action\": \"RELEASE\" | \"REFUND\" | \"SPLIT\", \"confidence\": 0-100, \"reason\": \"explanation\"}}"
+            )
+            raw = gl.nondet.llm.call(prompt, model="meta-llama/llama-3-70b-instruct")
+            return self._parse_llm_json(str(raw))
+
+        def dispute_validator_fn(leader_res) -> bool:
+            if not isinstance(leader_res, gl.vm.Return):
+                return False
+            leader_data = leader_res.calldata if hasattr(leader_res, "calldata") else leader_res
+            if not isinstance(leader_data, dict):
+                leader_data = self._parse_llm_json(str(leader_data))
+            mine_data = dispute_leader_fn()
+            l_act = str(leader_data.get("action", "SPLIT")).upper().strip()
+            m_act = str(mine_data.get("action", "SPLIT")).upper().strip()
+            return l_act == m_act
+
+        res = gl.vm.run_nondet(dispute_leader_fn, dispute_validator_fn)
+        if not isinstance(res, dict):
+            res = self._parse_llm_json(str(res))
+
+        act = str(res.get("action", "SPLIT")).upper().strip()
+        if act not in ["RELEASE", "REFUND", "SPLIT"]:
+            act = "SPLIT"
+
+        escrow = task.escrow_amount
+        stake = task.auditor_stake
+        task.status = "CLOSED"
+        task.escrow_amount = bigint(0)
+        task.auditor_stake = bigint(0)
+        task.reason = f"[Validator Consensus: {act}] {str(res.get('reason', 'Adjudicated by GenLayer consensus'))}"
+        self.tasks[task_id] = task
+
+        if act == "RELEASE":
+            gl.get_contract_at(Address(task.auditor)).emit_transfer(value=u256(escrow + stake))
+        elif act == "REFUND":
+            gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(escrow + stake))
+        else: # SPLIT
+            half = escrow // bigint(2)
+            rem = escrow - half
+            if half + stake > bigint(0):
+                gl.get_contract_at(Address(task.auditor)).emit_transfer(value=u256(half + stake))
+            if rem > bigint(0):
+                gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(rem))
+
+    @gl.public.write
     def resolve_escalation(self, task_id: str, action: str) -> None:
-        """Arbitration path for ESCALATED or DISPUTED tasks."""
+        """
+        Voluntary bilateral concession path for ESCALATED or DISPUTED tasks:
+        - Project Owner can voluntarily RELEASE funds to Auditor.
+        - Auditor can voluntarily REFUND funds to Project Owner.
+        Ensures neither party has unilateral authority to force an adverse split/refund.
+        """
         if task_id not in self.tasks:
             raise UserError("Task not found")
         task = self.tasks[task_id]
@@ -848,33 +1137,27 @@ Respond ONLY with valid JSON:
         caller = str(gl.message.sender_address).lower()
         act = action.upper().strip()
 
-        # Project Owner can only voluntarily concede (RELEASE)
-        if caller == task.project_owner and caller != self.platform_admin:
+        if caller == task.project_owner:
             if act != "RELEASE":
-                raise UserError("Project owners can only voluntarily RELEASE funds. Only platform admin can enforce REFUND or SPLIT.")
-
-        if caller != self.platform_admin and caller != task.project_owner:
-            raise UserError("Unauthorized caller")
+                raise UserError("Project Owner can only voluntarily concede via RELEASE to auditor. Use resolve_dispute_consensus for adjudication.")
+        elif caller == task.auditor:
+            if act != "REFUND":
+                raise UserError("Auditor can only voluntarily concede via REFUND to project owner. Use resolve_dispute_consensus for adjudication.")
+        else:
+            raise UserError("Unauthorized caller for dispute settlement")
 
         escrow = task.escrow_amount
         stake = task.auditor_stake
         task.status = "CLOSED"
         task.escrow_amount = bigint(0)
         task.auditor_stake = bigint(0)
+        task.reason = f"Voluntary {act} concession by {'project owner' if caller == task.project_owner else 'auditor'}"
+        self.tasks[task_id] = task
 
         if act == "RELEASE":
             gl.get_contract_at(Address(task.auditor)).emit_transfer(value=u256(escrow + stake))
         elif act == "REFUND":
             gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(escrow + stake))
-        elif act == "SPLIT":
-            half = escrow // bigint(2)
-            rem = escrow - half
-            gl.get_contract_at(Address(task.auditor)).emit_transfer(value=u256(half + stake))
-            gl.get_contract_at(Address(task.project_owner)).emit_transfer(value=u256(rem))
-        else:
-            raise UserError("Invalid action. Must be RELEASE, REFUND, or SPLIT")
-
-        self.tasks[task_id] = task
 
     @gl.public.view
     def get_all_tasks(self) -> str:
@@ -900,6 +1183,10 @@ Respond ONLY with valid JSON:
                     "confidence": str(t.confidence),
                     "attempts": str(t.attempts),
                     "payout_ready_at": str(t.payout_ready_at),
-                    "disputed_at": str(t.disputed_at)
+                    "disputed_at": str(t.disputed_at),
+                    "created_at": str(t.created_at),
+                    "accepted_at": str(t.accepted_at),
+                    "source_commit": t.source_commit
                 })
         return json.dumps(res)
+

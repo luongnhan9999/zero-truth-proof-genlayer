@@ -35,6 +35,7 @@ interface ZKAuditTask {
   exploit_hash: string;
   circuit_framework: string;
   constraint_focus: string;
+  source_commit: string;
   verdict: 'NONE' | 'APPROVED' | 'PARTIAL' | 'REFUND' | 'ESCALATE';
   reason: string;
   confidence: string;
@@ -77,6 +78,7 @@ export default function App() {
   const [newComplexity, setNewComplexity] = useState('15k constraints');
   const [newFocus, setNewFocus] = useState('');
   const [newEscrowAmount, setNewEscrowAmount] = useState('10'); // In GEN
+  const [newSourceCommit, setNewSourceCommit] = useState('');
 
   // Auto-generate task ID from Project Name
   useEffect(() => {
@@ -187,6 +189,18 @@ export default function App() {
           });
           setGenlayerClient(client);
           await fetchTasksFromContract();
+
+          // Refresh wallet balance
+          try {
+            const rawBal = await provider.request({
+              method: 'eth_getBalance',
+              params: [accounts[0], 'latest']
+            });
+            const balGEN = Number(BigInt(rawBal)) / 1e18;
+            setWalletBalance(`${balGEN.toFixed(2)} GEN`);
+          } catch (e) {
+            console.error('Balance refresh failed:', e);
+          }
         } else {
           // Disconnected
           disconnectWallet();
@@ -357,7 +371,19 @@ export default function App() {
       setGenlayerClient(client);
       setWalletAddress(accounts[0]);
       setWalletConnected(true);
-      setWalletBalance('12.5k'); // Display generic balance indicator
+      // Query real wallet balance from provider
+      try {
+        const rawBalance = await provider.request({
+          method: 'eth_getBalance',
+          params: [accounts[0], 'latest']
+        });
+        const balanceWei = BigInt(rawBalance);
+        const balanceGEN = Number(balanceWei) / 1e18;
+        setWalletBalance(`${balanceGEN.toFixed(2)} GEN`);
+      } catch (balErr) {
+        console.error('Balance query failed:', balErr);
+        setWalletBalance('— GEN');
+      }
       
       localStorage.setItem('wallet_previously_connected', 'true');
       
@@ -484,7 +510,7 @@ export default function App() {
       const hash = await genlayerClient.writeContract({
         address: contractAddress as `0x${string}`,
         functionName: 'create_audit_bounty',
-        args: [newTaskId, newCircuitUrl, newCircuitHash, circuit_framework, constraint_focus],
+        args: [newTaskId, newCircuitUrl, newCircuitHash, circuit_framework, constraint_focus, newSourceCommit || 'none'],
         value: valueWei
       });
       
@@ -509,6 +535,7 @@ export default function App() {
       setNewCircuitUrl('');
       setNewCircuitHash('');
       setNewFocus('');
+      setNewSourceCommit('');
       
       // Short delay for RPC indexer synchronization
       await new Promise(resolve => setTimeout(resolve, 2000));
