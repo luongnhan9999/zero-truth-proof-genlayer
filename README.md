@@ -1,8 +1,8 @@
 # ZeroTruthProof: Autonomous Zero-Knowledge Circuit Audit & Formal Verification Escrow
 
 - **Live dApp (Vercel):** [https://zero-truth-proof-genlayer.vercel.app](https://zero-truth-proof-genlayer.vercel.app)
-- **Deployed Contract (StudioNet):** [`0x0C4DA87A7dA353b17e04Db5d49eA643dbb599969`](https://genlayer-explorer.vercel.app/address/0x0C4DA87A7dA353b17e04Db5d49eA643dbb599969)
-- **Studio Contract IDE:** [https://studio.genlayer.com/contracts/0x0C4DA87A7dA353b17e04Db5d49eA643dbb599969](https://studio.genlayer.com/contracts/0x0C4DA87A7dA353b17e04Db5d49eA643dbb599969)
+- **Deployed Contract (StudioNet):** [`0x9a995795a18E43281133C6dB493D822Df7072750`](https://genlayer-explorer.vercel.app/address/0x9a995795a18E43281133C6dB493D822Df7072750)
+- **Studio Contract IDE:** [https://studio.genlayer.com/contracts/0x9a995795a18E43281133C6dB493D822Df7072750](https://studio.genlayer.com/contracts/0x9a995795a18E43281133C6dB493D822Df7072750)
 - **GitHub Repository:** [https://github.com/luongnhan9999/zero-truth-proof-genlayer](https://github.com/luongnhan9999/zero-truth-proof-genlayer)
 
 **ZeroTruthProof** is an intelligent escrow and autonomous arbitration protocol built on GenLayer. It automates the verification and payout process for Zero-Knowledge (ZK-SNARK / Circom / Halo2 / PlonK) circuit audits and formal verification bug bounty programs.
