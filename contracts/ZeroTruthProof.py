@@ -1,6 +1,7 @@
-# SOURCE_REPO: https://github.com/luongnhan9999/zero-truth-proof-genlayer
-# SOURCE_COMMIT: d26f0889160c988aa33f9a9bd711ad37a6883b45
+# v0.2.18
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
+# SOURCE_REPO: https://github.com/luongnhan9999/zero-truth-proof-genlayer
+# SOURCE_COMMIT: ae84e88383c38b259163eb1d368e7ec8ff1e792c
 from genlayer import *
 from dataclasses import dataclass
 import json
@@ -603,17 +604,18 @@ class R1CSConstraintVerifier:
         }
 
 # ── Non-custodial Timeout Boundaries (in seconds) ────────────────────────────
-OPEN_TIMEOUT = bigint(2592000)       # 30 days: owner can cancel if unaccepted
-PROGRESS_TIMEOUT = bigint(1209600)   # 14 days: auto-expire if auditor abandons IN_PROGRESS
-REVISION_TIMEOUT = bigint(604800)    # 7 days: auto-expire revision window
-DISPUTE_TIMEOUT = bigint(2592000)    # 30 days: auto-split fallback if dispute unresolved
+OPEN_TIMEOUT_SEC = 2592000       # 30 days: owner can cancel if unaccepted
+PROGRESS_TIMEOUT_SEC = 1209600   # 14 days: auto-expire if auditor abandons IN_PROGRESS
+REVISION_TIMEOUT_SEC = 604800    # 7 days: auto-expire revision window
+DISPUTE_TIMEOUT_SEC = 2592000    # 30 days: auto-split fallback if dispute unresolved
 
 class Contract(gl.Contract):
+    platform_admin: str
     tasks: TreeMap[str, ZKAuditTask]
     task_ids: DynArray[str]
 
     def __init__(self):
-        pass
+        self.platform_admin = str(gl.message.sender_address).lower()
 
     def _get_current_timestamp(self) -> bigint:
         """Derive trusted execution timestamp strictly from transaction context."""
@@ -961,7 +963,7 @@ Respond ONLY with valid JSON:
             raise UserError("Only project owner can cancel bounty")
 
         now = self._get_current_timestamp()
-        if now < task.created_at + OPEN_TIMEOUT:
+        if now < task.created_at + bigint(OPEN_TIMEOUT_SEC):
             raise UserError("Bounty cancellation timeout has not elapsed yet (must wait 30 days from creation)")
 
         escrow = task.escrow_amount
@@ -995,7 +997,7 @@ Respond ONLY with valid JSON:
         stake = task.auditor_stake
 
         if task.status == "IN_PROGRESS":
-            if now < task.accepted_at + PROGRESS_TIMEOUT:
+            if now < task.accepted_at + bigint(PROGRESS_TIMEOUT_SEC):
                 raise UserError("IN_PROGRESS task timeout has not elapsed yet (14 days)")
             task.status = "CLOSED"
             task.escrow_amount = bigint(0)
@@ -1009,7 +1011,7 @@ Respond ONLY with valid JSON:
 
         elif task.status == "NEEDS_REVISION":
             ref_time = task.payout_ready_at if task.payout_ready_at > bigint(0) else task.accepted_at
-            if now < ref_time + REVISION_TIMEOUT:
+            if now < ref_time + bigint(REVISION_TIMEOUT_SEC):
                 raise UserError("NEEDS_REVISION timeout has not elapsed yet (7 days)")
             task.status = "CLOSED"
             task.escrow_amount = bigint(0)
@@ -1023,7 +1025,7 @@ Respond ONLY with valid JSON:
 
         elif task.status in ["ESCALATED", "DISPUTED"]:
             ref_time = task.disputed_at if task.disputed_at > bigint(0) else (task.payout_ready_at if task.payout_ready_at > bigint(0) else task.created_at)
-            if now < ref_time + DISPUTE_TIMEOUT:
+            if now < ref_time + bigint(DISPUTE_TIMEOUT_SEC):
                 raise UserError("Dispute resolution timeout has not elapsed yet (30 days)")
             # Non-custodial 50/50 fallback split
             task.status = "CLOSED"
