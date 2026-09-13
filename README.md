@@ -1,8 +1,8 @@
 # ZeroTruthProof: Autonomous Zero-Knowledge Circuit Audit & Formal Verification Escrow
 
 - **Live dApp (Vercel):** [https://zero-truth-proof-genlayer.vercel.app](https://zero-truth-proof-genlayer.vercel.app)
-- **Deployed Contract (StudioNet):** [`0x09e20A423Acc58258CEAE3c27742D817801CF819`](https://genlayer-explorer.vercel.app/address/0x09e20A423Acc58258CEAE3c27742D817801CF819)
-- **Studio Contract IDE:** [https://studio.genlayer.com/contracts/0x09e20A423Acc58258CEAE3c27742D817801CF819](https://studio.genlayer.com/contracts/0x09e20A423Acc58258CEAE3c27742D817801CF819)
+- **Deployed Contract (StudioNet):** [`0x203877Ae465609891B73e46A87f2356e8b8F5B37`](https://genlayer-explorer.vercel.app/address/0x203877Ae465609891B73e46A87f2356e8b8F5B37)
+- **Studio Contract IDE:** [https://studio.genlayer.com/contracts/0x203877Ae465609891B73e46A87f2356e8b8F5B37](https://studio.genlayer.com/contracts/0x203877Ae465609891B73e46A87f2356e8b8F5B37)
 - **GitHub Repository:** [https://github.com/luongnhan9999/zero-truth-proof-genlayer](https://github.com/luongnhan9999/zero-truth-proof-genlayer)
 
 **ZeroTruthProof** is an intelligent escrow and autonomous arbitration protocol built on GenLayer. It automates the verification and payout process for Zero-Knowledge (ZK-SNARK / Circom / Halo2 / PlonK) circuit audits and formal verification bug bounty programs.
@@ -124,15 +124,15 @@ All smart contract interactions have been executed, validated, and permanently r
 
 | Contract & Scenario | Transaction Type | Transaction Hash | Explorer Link | Resulting State & Verdict |
 | :--- | :--- | :--- | :--- | :--- |
-| **Current Deployed Contract** | Contract Deployment | `0x55d84cb679cec4bc49517c39cd647a5732ace7bae73dfd349b4ea4ecd09a2a05` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x55d84cb679cec4bc49517c39cd647a5732ace7bae73dfd349b4ea4ecd09a2a05) | Deployed at `0x09e20A423Acc58258CEAE3c27742D817801CF819` (Consensus 5/5) |
-| **R1CS & Slashing Flow** | `create_audit_bounty` | `0x798110c3796ee5528aec546e04fff0d6514dc478f0b58a6c8430b4ea4654d8f1` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x798110c3796ee5528aec546e04fff0d6514dc478f0b58a6c8430b4ea4654d8f1) | Status: `OPEN` (1 GEN escrow, Pinned Commit) |
-| (`zk-multiplier2-slashing-1789291159434`) | `accept_audit_task` | `0xd2b405a4b77f144165c76cb7dc34e589313db0f746f7a7defc1b6273f8cae3b8` | [View Tx](https://genlayer-explorer.vercel.app/tx/0xd2b405a4b77f144165c76cb7dc34e589313db0f746f7a7defc1b6273f8cae3b8) | Status: `IN_PROGRESS` (0.2 GEN stake deposited) |
-| | `submit_counterexample` (1) | `0x345d8dd45c6afc4b66c43f39b388b78d2944ca4b9e079af628e56eb4a26e479c` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x345d8dd45c6afc4b66c43f39b388b78d2944ca4b9e079af628e56eb4a26e479c) | Status: `NEEDS_REVISION`, Attempts: 1, R1CS Deterministic Failure |
-| | `submit_counterexample` (2) | `0x991fb1a139273fccecaf81f79b43e353216b52959acd59a1aebd00403484502a` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x991fb1a139273fccecaf81f79b43e353216b52959acd59a1aebd00403484502a) | Status: `CLOSED`, Verdict: `REFUND`, Slashing: 1.2 GEN returned to owner EOA |
-| **Dispute Consensus Flow** | `create_audit_bounty` | `0x4c6d004ba5b55cdd8213666f35323dd33571fc6b7c56c6bbdc15875969684d30` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x4c6d004ba5b55cdd8213666f35323dd33571fc6b7c56c6bbdc15875969684d30) | Status: `OPEN` (1 GEN escrow) |
-| (`zk-multiplier2-live-1789291043327`) | `accept_audit_task` | `0x2b2e3b4e7e4296ee0e3a868f9ee5c161f7fcfc2f5e9ee66e6dcd5724048afa6e` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x2b2e3b4e7e4296ee0e3a868f9ee5c161f7fcfc2f5e9ee66e6dcd5724048afa6e) | Status: `IN_PROGRESS` (0.2 GEN stake deposited) |
-| | `submit_counterexample` | `0x41aa7f304cd13115ee464d49efcc4894a836846a0e23f762a211edeb32ed9a4e` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x41aa7f304cd13115ee464d49efcc4894a836846a0e23f762a211edeb32ed9a4e) | Status: `ESCALATED` (Protected under escrow) |
-| | `resolve_dispute_consensus` | `0xfb953057417f375f1f5a23e777509792ff0972f1612b50c29ba2c0a75a9f5fb8` | [View Tx](https://genlayer-explorer.vercel.app/tx/0xfb953057417f375f1f5a23e777509792ff0972f1612b50c29ba2c0a75a9f5fb8) | Status: `CLOSED`, Verdict: `SPLIT` (50/50 Multi-Validator AI Consensus) |
+| **Current Deployed Contract** | Contract Address | `0x203877Ae465609891B73e46A87f2356e8b8F5B37` | [View Address](https://genlayer-explorer.vercel.app/address/0x203877Ae465609891B73e46A87f2356e8b8F5B37) | Deployed from Authoritative User Wallet |
+| **R1CS & Slashing Flow** | `create_audit_bounty` | `0x7b778ccb20fb151e7873f2d8595052a7f8ee7d226bde92ff31dfec7820a17b6c` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x7b778ccb20fb151e7873f2d8595052a7f8ee7d226bde92ff31dfec7820a17b6c) | Status: `OPEN` (1 GEN escrow, Pinned Commit) |
+| (`zk-slashing-1789292003206`) | `accept_audit_task` | `0xbbb17a6d03922dfe1e40883d2d1d86669bbc4bf627d4490cd5e7a221c22702ce` | [View Tx](https://genlayer-explorer.vercel.app/tx/0xbbb17a6d03922dfe1e40883d2d1d86669bbc4bf627d4490cd5e7a221c22702ce) | Status: `IN_PROGRESS` (0.2 GEN stake deposited) |
+| | `submit_counterexample` (1) | `0x197d58f27b9188e6f58146a250469431edb3de46f60585805c7f4bf4f685049f` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x197d58f27b9188e6f58146a250469431edb3de46f60585805c7f4bf4f685049f) | Status: `NEEDS_REVISION`, Attempts: 1, R1CS Deterministic Failure |
+| | `submit_counterexample` (2) | `0x5cd73ca2c82ede131c8ee4d7f83663fb778511606bf3bf7dd72cc6d981747b35` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x5cd73ca2c82ede131c8ee4d7f83663fb778511606bf3bf7dd72cc6d981747b35) | Status: `CLOSED`, Verdict: `REFUND`, Slashing: 1.2 GEN returned to owner EOA |
+| **Dispute Consensus Flow** | `create_audit_bounty` | `0xb5f91402e68b17160fa866ad3e44401ca498b91120dd171985fd0db26ebc4cd9` | [View Tx](https://genlayer-explorer.vercel.app/tx/0xb5f91402e68b17160fa866ad3e44401ca498b91120dd171985fd0db26ebc4cd9) | Status: `OPEN` (1 GEN escrow) |
+| (`zk-dispute-1789292041193`) | `accept_audit_task` | `0x26bf98c7e3845bc0ad955da93feb0ed40a1ee0fe585e9a882af1e5e6c03b24b4` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x26bf98c7e3845bc0ad955da93feb0ed40a1ee0fe585e9a882af1e5e6c03b24b4) | Status: `IN_PROGRESS` (0.2 GEN stake deposited) |
+| | `submit_counterexample` | `0x8dc92383a36d7f05f0e7b862c301e01643f5a5b72c6aaa8715d122f0e3dcbabb` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x8dc92383a36d7f05f0e7b862c301e01643f5a5b72c6aaa8715d122f0e3dcbabb) | Status: `ESCALATED` (Protected under escrow) |
+| | `resolve_dispute_consensus` | `0x5949b2c98c71ab514d5ad02c52bca13f7f1d050e8cff47ebb10f15fac69322f0` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x5949b2c98c71ab514d5ad02c52bca13f7f1d050e8cff47ebb10f15fac69322f0) | Status: `CLOSED`, Verdict: `SPLIT` (50/50 Multi-Validator AI Consensus) |
 | **Voluntary Concession Flow** | Bilateral Concession (RELEASE) | `0x1b0d2e3b6c549ffbc9a30f309ace594c89736327bfc268dd33f4e09d32ebb854` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x1b0d2e3b6c549ffbc9a30f309ace594c89736327bfc268dd33f4e09d32ebb854) | Status: `CLOSED`, Voluntary RELEASE Concession |
 
 

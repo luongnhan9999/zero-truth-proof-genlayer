@@ -52,7 +52,7 @@ export default function App() {
   const [selectedRole, setSelectedRole] = useState<'OWNER' | 'AUDITOR'>('OWNER');
   
   // Smart Contract Info (Default test address, can be configured in UI)
-  const [contractAddress, setContractAddress] = useState('0x09e20A423Acc58258CEAE3c27742D817801CF819');
+  const [contractAddress, setContractAddress] = useState('0x203877Ae465609891B73e46A87f2356e8b8F5B37');
   const [tasks, setTasks] = useState<ZKAuditTask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
   
