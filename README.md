@@ -83,22 +83,26 @@ zeroTruthProof/
 
 ---
 
-## Dual-Stage Verification & Test Suite (60 Tests, 100% Pass)
+## Dual-Stage Verification & Test Suite (66 Tests, 100% Pass)
 
-The project includes two complementary test suites run sequentially by `verify_contract.py`:
+The project includes two complementary test suites run sequentially by `verify_contract.py` or directly via the official `gltest` tool:
 
 ```bash
+# Option A: Run complete dual-stage suite (Mock unit tests + gltest GenVM runtime)
 python scripts/verify_contract.py
+
+# Option B: Run official gltest GenVM execution directly (ZERO MOCKS)
+gltest tests/test_genlayer_runtime.py tests/test_gltest_suite.py
 ```
 
-### Stage 1: Local Unit Test Suite (`test_zero_truth_proof.py` — 48 Tests, 100% Pass)
+### Stage 1: Local Unit Test Suite (`test_zero_truth_proof.py` — 49 Tests, 100% Pass)
 - **`TestR1CSVerifier` (17 Finite-Field & Parsing Tests):**
   - Satisfied constraints verification, wrong arithmetic rejection ($c=99$ vs $c=21$)
   - Non-JSON / prose rejection, missing signal detection, zero-bypass resistance
   - Operator precedence ($x + y \cdot z$), boolean rejection, empty JSON rejection
   - Finite field overflow wrapping, modular division via Fermat inverse, division-by-zero reversion
   - Array signals (`signal input a[2]`), component instantiations, compiler version extraction
-- **`TestContractIntegration` (31 Full Lifecycle Integration Tests):**
+- **`TestContractIntegration` (32 Full Lifecycle Integration Tests):**
   - 20% minimum auditor stake enforcement
   - Valid exploit approval, 24h cooling-off, payout dispatch
   - Multi-validator dispute consensus and voluntary bilateral concession
@@ -106,21 +110,29 @@ python scripts/verify_contract.py
   - 4 timeout recovery flows (`OPEN` cancellation, `IN_PROGRESS` abandon, `NEEDS_REVISION` abandon, `DISPUTED` 50/50 split)
   - Compiler-backed R1CS artifact verification (valid witness, invalid witness, under-constrained detection)
   - Pull-over-Push `withdrawable_balances` query and `withdraw()` fund disbursement
+  - Automated fallback: `_safe_transfer` automatically credits `withdrawable_balances` when `emit_transfer` encounters failure
 
-### Stage 2: Real GenVM Integration Suite (`test_gltest_suite.py` — 12 Tests, 100% Pass)
-Executes directly within the **GenLayer GenVM runtime** (`gltest.direct` / `direct_deploy` / `direct_vm`):
-1. `test_valid_multiplier2_artifact_passes`: Compiler-backed R1CS matrix evaluation succeeds on GenVM.
-2. `test_invalid_witness_rejected_by_artifact`: Invalid witness fails matrix constraint on GenVM.
-3. `test_under_constrained_artifact_detected`: 0-constraint circuit flagged as under-constrained on GenVM.
-4. `test_auto_detect_routes_to_artifact`: JSON input with `constraints` auto-routes to compiler-backed engine.
-5. `test_auto_detect_falls_through_for_circom`: Circom source code auto-routes to AST parser.
-6. `test_deploy_succeeds`: Contract compiles and deploys cleanly to GenVM sandbox.
-7. `test_create_bounty_and_get_tasks`: Payable bounty creation with native GEN escrow and task retrieval.
-8. `test_duplicate_task_id_rejected`: Idempotency guard rejects duplicate task IDs.
-9. `test_accept_audit_task`: Auditor stake deposit and state transition to `IN_PROGRESS`.
-10. `test_zero_escrow_rejected`: Rejects bounties created with 0 escrow value.
-11. `test_get_withdrawable_balance_default_zero`: Non-custodial balance defaults to 0.
-12. `test_withdraw_no_balance_raises`: Empty balance withdrawal raises clean UserError.
+### Stage 2: Real GenVM Execution Suites (17 Tests, 100% Pass — ZERO MOCKS)
+Executes directly within the **GenLayer GenVM runtime** (`gltest.direct` / `direct_deploy` / `direct_vm` with **no mock modules or monkey-patching**):
+- **`tests/test_genlayer_runtime.py` (4 GenVM Tests):**
+  1. `test_01_finite_field_division_and_arithmetic_in_genvm`: BN254 finite field arithmetic in real VM.
+  2. `test_02_compiler_backed_r1cs_artifact_execution`: R1CS matrix constraint evaluation on GenVM.
+  3. `test_03_invalid_witness_rejection_in_genvm`: Deterministic unsound witness rejection on GenVM.
+  4. `test_04_bounty_lifecycle_on_chain_runtime`: Payable escrow creation and auditor staking in GenVM.
+- **`tests/test_gltest_suite.py` (13 GenVM Tests):**
+  5. `test_valid_multiplier2_artifact_passes`: Compiler-backed R1CS artifact verification.
+  6. `test_invalid_witness_rejected_by_artifact`: Invalid witness fails matrix constraint.
+  7. `test_under_constrained_artifact_detected`: 0-constraint circuit flagged as under-constrained.
+  8. `test_auto_detect_routes_to_artifact`: JSON input with `constraints` auto-routes to artifact engine.
+  9. `test_auto_detect_falls_through_for_circom`: Circom source code auto-routes to AST parser.
+  10. `test_deploy_succeeds`: Contract compiles and deploys cleanly to GenVM sandbox.
+  11. `test_create_bounty_and_get_tasks`: Payable bounty creation with native GEN escrow and task retrieval.
+  12. `test_duplicate_task_id_rejected`: Idempotency guard rejects duplicate task IDs.
+  13. `test_accept_audit_task`: Auditor stake deposit and state transition to `IN_PROGRESS`.
+  14. `test_zero_escrow_rejected`: Rejects bounties created with 0 escrow value.
+  15. `test_get_withdrawable_balance_default_zero`: Non-custodial balance defaults to 0.
+  16. `test_withdraw_no_balance_raises`: Empty balance withdrawal raises clean UserError.
+  17. `test_safe_transfer_pull_over_push_fallback`: Verifies non-reverting pull-over-push fallback on GenVM.
 
 ---
 
