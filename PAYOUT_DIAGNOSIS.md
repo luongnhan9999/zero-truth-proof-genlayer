@@ -119,20 +119,27 @@ flowchart TD
     H --> I[Funds Withdrawn via Pull Mechanism]
 ```
 
-### Pillar 1: Canonical Native Transfer Mechanism
-Replaced the typed `@gl.evm.contract_interface _Recipient` proxy with the platform-standard universal handle:
+### Pillar 1: Canonical Native Transfer Mechanism (Direct bigint Value)
+Replaced the typed `@gl.evm.contract_interface _Recipient` proxy with the platform-standard universal handle, using direct `bigint` without intermediate `u256(amount)` casting:
 
 ```python
-def _safe_transfer(to_address: str, amount: bigint) -> None:
-    """Safely transfer GEN to an EOA or contract address via GenLayer native transfer."""
-    if amount > bigint(0):
-        gl.get_contract_at(Address(to_address)).emit_transfer(value=u256(amount))
+def _safe_transfer(self, to_address: str, amount: bigint) -> None:
+    """Safely transfer GEN using native bigint value with Pull-over-Push fallback."""
+    if amount <= bigint(0):
+        return
+    addr_clean = to_address.strip().lower()
+    try:
+        gl.get_contract_at(Address(addr_clean)).emit_transfer(value=amount)
+    except Exception:
+        # Fallback to pull-vault if direct transfer encounters runtime issues
+        cur = self.withdrawable_balances.get(addr_clean, bigint(0))
+        self.withdrawable_balances[addr_clean] = cur + amount
 ```
 
 ### Pillar 2: Pull-over-Push Safety Net (`withdrawable_balances`)
 Direct push payments in multi-recipient scenarios (such as 50/50 dispute splits or multi-party refunds) present systemic risks: if any single push transfer fails, the entire transaction reverts, locking funds for all participants.
 
-To resolve this, v0.3.0 incorporates a **Pull-over-Push (Withdrawable Credits)** architectural pattern:
+To resolve this, v0.3.0 incorporates a **true Pull-over-Push (Withdrawable Credits)** architectural pattern directly integrated into `_safe_transfer`:
 
 ```python
 # Contract Storage
@@ -152,10 +159,10 @@ def withdraw(self) -> None:
     
     # Zero out balance before transfer to eliminate reentrancy risks
     self.withdrawable_balances[caller] = bigint(0)
-    gl.get_contract_at(Address(caller)).emit_transfer(value=u256(balance))
+    gl.get_contract_at(Address(caller)).emit_transfer(value=balance)
 ```
 
-If a direct push transfer cannot be executed or if complex multi-party disbursements occur, funds are safely credited to `self.withdrawable_balances[recipient]`. The recipient can claim their funds independently by calling `withdraw()`.
+If a direct push transfer cannot be executed or encounters node/network issues, funds are automatically caught by the `try...except` block in `_safe_transfer` and credited to `self.withdrawable_balances[recipient]`. The recipient can claim their funds independently by calling `withdraw()`.
 
 ### Pillar 3: Timestamp Diagnostics & Frontend Cooling-Off Guards
 1. **Explicit Diagnostics:** `_get_current_timestamp()` provides granular error logging distinguishing between missing context and ISO format parsing failures.

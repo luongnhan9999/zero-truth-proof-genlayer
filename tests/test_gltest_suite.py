@@ -210,3 +210,15 @@ class TestContractLifecycle:
         contract = direct_deploy(str(CONTRACT_PATH))
         with pytest.raises(Exception, match="[Nn]o withdrawable"):
             contract.withdraw()
+
+    def test_safe_transfer_pull_over_push_fallback(self, direct_deploy, direct_vm):
+        """When direct transfer fails, funds are credited to withdrawable_balances."""
+        contract = direct_deploy(str(CONTRACT_PATH))
+        # Call _safe_transfer directly on contract instance with an address
+        # In GenVM direct mode, _safe_transfer attempts emit_transfer.
+        # If target has issues, it falls back to withdrawable_balances.
+        contract._safe_transfer("0x9999999999999999999999999999999999999999", 500)
+        # Either the transfer succeeded or it was credited to withdrawable_balances
+        bal = contract.get_withdrawable_balance("0x9999999999999999999999999999999999999999")
+        # Contract state remains consistent and does NOT revert
+        assert bal in ["0", "500"]

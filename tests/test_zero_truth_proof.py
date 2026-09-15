@@ -832,6 +832,25 @@ class TestContractIntegration(unittest.TestCase):
         self.assertEqual(len(self.gl.transfers), 1)
         self.assertEqual(self.gl.transfers[0]["value"], 500)
 
+    def test_32_safe_transfer_pull_over_push_fallback(self):
+        """When emit_transfer raises an exception, _safe_transfer falls back to withdrawable_balances."""
+        user = "0xfailed_recipient"
+        # Simulate emit_transfer failure
+        orig_get_contract_at = self.gl.get_contract_at
+        def failing_contract_at(addr):
+            stub = orig_get_contract_at(addr)
+            stub.emit_transfer = lambda val: (_ for _ in ()).throw(RuntimeError("GenVM simulated transfer failure"))
+            return stub
+        self.gl.get_contract_at = failing_contract_at
+
+        # Call _safe_transfer
+        self.contract._safe_transfer(user, MockBigInt(1000))
+        # Funds must be credited to withdrawable_balances, NOT lost
+        self.assertEqual(self.contract.get_withdrawable_balance(user), "1000")
+
+        # Restore
+        self.gl.get_contract_at = orig_get_contract_at
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

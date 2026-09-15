@@ -14,16 +14,6 @@ except NameError:
 # SOURCE_REPO: https://github.com/luongnhan9999/zero-truth-proof-genlayer
 # SOURCE_COMMIT: da68001a693df13a736b00452f089da97d9b5890
 
-def _safe_transfer(to_address: str, amount: bigint) -> None:
-    """Safely transfer GEN to an EOA or contract address via GenLayer native transfer.
-
-    Uses the canonical gl.get_contract_at() pattern (R15) instead of
-    @gl.evm.contract_interface proxy stubs, which can cause GenVM ERROR
-    when targeting EOAs that lack a matching contract interface.
-    """
-    if amount > bigint(0):
-        gl.get_contract_at(Address(to_address)).emit_transfer(value=u256(amount))
-
 @allow_storage
 @dataclass
 class ZKAuditTask:
@@ -913,6 +903,22 @@ class Contract(gl.Contract):
     def __init__(self):
         pass
 
+    def _safe_transfer(self, to_address: str, amount: bigint) -> None:
+        """Safely transfer GEN using native bigint value with Pull-over-Push fallback.
+
+        Attempts direct native transfer via gl.get_contract_at().emit_transfer(value=amount).
+        If the direct dispatch fails for any reason (e.g. EOA call dispatch edge case or node error),
+        the funds are immediately credited to self.withdrawable_balances for non-custodial pull.
+        """
+        if amount <= bigint(0):
+            return
+        addr_clean = to_address.strip().lower()
+        try:
+            gl.get_contract_at(Address(addr_clean)).emit_transfer(value=amount)
+        except Exception:
+            cur = self.withdrawable_balances.get(addr_clean, bigint(0))
+            self.withdrawable_balances[addr_clean] = cur + amount
+
     def _get_current_timestamp(self) -> bigint:
         """Derive trusted execution timestamp strictly from transaction context."""
         dt_raw = gl.message_raw.get("datetime", None) if isinstance(gl.message_raw, dict) else None
@@ -1098,12 +1104,13 @@ class Contract(gl.Contract):
             except Exception as e:
                 return {"verdict": "REFUND", "confidence": 100, "reason": f"Counterexample fetch failed: {str(e)}"}
 
-            # 3. On-Chain R1CS Constraint Verification
-            if "circom" in framework_str.lower():
+            # 3. On-Chain R1CS Constraint Verification (Compiler-Backed Artifacts & Circom)
+            is_r1cs_artifact = c_text.strip().startswith("{") and ("constraints" in c_text or "nVars" in c_text)
+            if is_r1cs_artifact or "circom" in framework_str.lower() or "r1cs" in framework_str.lower():
                 r1cs_result = R1CSConstraintVerifier.verify(c_text, e_text)
                 if not r1cs_result["verified"]:
                     stage = r1cs_result.get("stage", "")
-                    verdict = "ESCALATE" if stage == "CIRCUIT_COMPILATION" else "REFUND"
+                    verdict = "ESCALATE" if stage in ["CIRCUIT_COMPILATION", "ARTIFACT_PARSING"] else "REFUND"
                     return {
                         "verdict": verdict,
                         "confidence": 100,
@@ -1111,7 +1118,7 @@ class Contract(gl.Contract):
                     }
                 eval_trace = r1cs_result["trace"]
             else:
-                eval_trace = ["Non-Circom framework — R1CS verification skipped"]
+                eval_trace = ["Non-R1CS framework — R1CS verification skipped"]
 
             if len(e_text.strip()) < 20:
                 return {"verdict": "REFUND", "confidence": 100, "reason": "Witness script too short (< 20 chars)."}
@@ -1193,7 +1200,7 @@ Respond ONLY with valid JSON:
                 total_refund = task.escrow_amount + task.auditor_stake
                 task.escrow_amount = bigint(0)
                 task.auditor_stake = bigint(0)
-                _safe_transfer(task.project_owner, total_refund)
+                self._safe_transfer(task.project_owner, total_refund)
         else:
             task.status = "ESCALATED"
 
@@ -1246,12 +1253,12 @@ Respond ONLY with valid JSON:
         task.auditor_stake = bigint(0)
 
         if task.verdict == "APPROVED":
-            _safe_transfer(task.auditor, escrow + stake)
+            self._safe_transfer(task.auditor, escrow + stake)
         elif task.verdict == "PARTIAL":
             half = escrow // bigint(2)
             rem = escrow - half
-            _safe_transfer(task.auditor, half + stake)
-            _safe_transfer(task.project_owner, rem)
+            self._safe_transfer(task.auditor, half + stake)
+            self._safe_transfer(task.project_owner, rem)
 
         self.tasks[task_id] = task
 
@@ -1279,7 +1286,7 @@ Respond ONLY with valid JSON:
         self.tasks[task_id] = task
 
         if escrow > bigint(0):
-            _safe_transfer(task.project_owner, escrow)
+            self._safe_transfer(task.project_owner, escrow)
 
     @gl.public.write
     def recover_expired_task(self, task_id: str) -> None:
@@ -1311,9 +1318,9 @@ Respond ONLY with valid JSON:
             task.reason = "Expired: auditor abandoned task during IN_PROGRESS"
             self.tasks[task_id] = task
             if escrow > bigint(0):
-                _safe_transfer(task.project_owner, escrow)
+                self._safe_transfer(task.project_owner, escrow)
             if stake > bigint(0):
-                _safe_transfer(task.auditor, stake)
+                self._safe_transfer(task.auditor, stake)
 
         elif task.status == "NEEDS_REVISION":
             ref_time = task.payout_ready_at if task.payout_ready_at > bigint(0) else task.accepted_at
@@ -1325,9 +1332,9 @@ Respond ONLY with valid JSON:
             task.reason = "Expired: auditor abandoned revision attempt"
             self.tasks[task_id] = task
             if escrow > bigint(0):
-                _safe_transfer(task.project_owner, escrow)
+                self._safe_transfer(task.project_owner, escrow)
             if stake > bigint(0):
-                _safe_transfer(task.auditor, stake)
+                self._safe_transfer(task.auditor, stake)
 
         elif task.status in ["ESCALATED", "DISPUTED"]:
             ref_time = task.disputed_at if task.disputed_at > bigint(0) else (task.payout_ready_at if task.payout_ready_at > bigint(0) else task.created_at)
@@ -1342,9 +1349,9 @@ Respond ONLY with valid JSON:
             half = escrow // bigint(2)
             rem = escrow - half
             if half + stake > bigint(0):
-                _safe_transfer(task.auditor, half + stake)
+                self._safe_transfer(task.auditor, half + stake)
             if rem > bigint(0):
-                _safe_transfer(task.project_owner, rem)
+                self._safe_transfer(task.project_owner, rem)
 
         else:
             raise UserError(f"No timeout recovery rule for status {task.status}")
@@ -1417,16 +1424,16 @@ Respond ONLY with valid JSON:
         self.tasks[task_id] = task
 
         if act == "RELEASE":
-            _safe_transfer(task.auditor, escrow + stake)
+            self._safe_transfer(task.auditor, escrow + stake)
         elif act == "REFUND":
-            _safe_transfer(task.project_owner, escrow + stake)
+            self._safe_transfer(task.project_owner, escrow + stake)
         else: # SPLIT
             half = escrow // bigint(2)
             rem = escrow - half
             if half + stake > bigint(0):
-                _safe_transfer(task.auditor, half + stake)
+                self._safe_transfer(task.auditor, half + stake)
             if rem > bigint(0):
-                _safe_transfer(task.project_owner, rem)
+                self._safe_transfer(task.project_owner, rem)
 
     @gl.public.write
     def resolve_escalation(self, task_id: str, action: str) -> None:
@@ -1463,9 +1470,9 @@ Respond ONLY with valid JSON:
         self.tasks[task_id] = task
 
         if act == "RELEASE":
-            _safe_transfer(task.auditor, escrow + stake)
+            self._safe_transfer(task.auditor, escrow + stake)
         elif act == "REFUND":
-            _safe_transfer(task.project_owner, escrow + stake)
+            self._safe_transfer(task.project_owner, escrow + stake)
 
     @gl.public.view
     def get_all_tasks(self) -> str:
@@ -1508,19 +1515,15 @@ Respond ONLY with valid JSON:
         pull their balance at any time.
         """
         caller = str(gl.message.sender_address).lower()
-        if caller not in self.withdrawable_balances:
-            raise UserError("No withdrawable balance")
-        amount = self.withdrawable_balances[caller]
-        if amount <= bigint(0):
+        bal = self.withdrawable_balances.get(caller, bigint(0))
+        if bal <= bigint(0):
             raise UserError("No withdrawable balance")
         self.withdrawable_balances[caller] = bigint(0)
-        _safe_transfer(caller, amount)
+        gl.get_contract_at(Address(caller)).emit_transfer(value=bal)
 
     @gl.public.view
     def get_withdrawable_balance(self, address: str) -> str:
         """Check withdrawable balance for Pull-over-Push safety net."""
-        addr = address.lower()
-        if addr in self.withdrawable_balances:
-            return str(self.withdrawable_balances[addr])
-        return "0"
+        addr = address.lower().strip()
+        return str(self.withdrawable_balances.get(addr, bigint(0)))
 
