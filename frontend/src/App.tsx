@@ -18,7 +18,8 @@ import {
   User,
   Zap,
   ExternalLink,
-  RotateCcw
+  RotateCcw,
+  Info
 } from 'lucide-react';
 import { createClient } from 'genlayer-js';
 import { studionet } from 'genlayer-js/chains';
@@ -624,6 +625,10 @@ export default function App() {
     if (!activeTask) return;
     if (!walletConnected || !genlayerClient) {
       alert('Connect wallet first.');
+      return;
+    }
+    if (walletAddress.toLowerCase() === activeTask.project_owner.toLowerCase()) {
+      alert('Security Rule: Project Owner cannot audit their own circuit. Please switch to an independent Auditor account in MetaMask.');
       return;
     }
 
@@ -1303,8 +1308,18 @@ export default function App() {
                 <div className="text-xs min-h-[80px]">
                   
                   {/* OWNER PANEL */}
-                  {selectedRole === 'OWNER' && (
+                  {selectedRole === 'OWNER' && (() => {
+                    const isOwner = walletConnected && walletAddress.toLowerCase() === activeTask.project_owner.toLowerCase();
+
+                    return (
                     <div className="flex flex-col gap-4 font-mono">
+                      {!isOwner && walletConnected && (
+                        <div className="p-2.5 bg-slate-900 border border-slate-800 rounded text-slate-400 text-xs flex items-center gap-2">
+                          <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>Connected wallet is viewing as Auditor / Observer. Task Creator is <span className="font-mono text-purple-300">{activeTask.project_owner.slice(0, 8)}...{activeTask.project_owner.slice(-6)}</span>.</span>
+                        </div>
+                      )}
+
                       {activeTask.status === 'OPEN' && (
                         <p className="text-slate-400 italic">
                           Awaiting an independent ZK Auditor to stake 20% security deposit ({(parseFloat(activeTask.escrow_amount) / 1e18) * 0.2} GEN) and lock this contract on-chain.
@@ -1392,21 +1407,38 @@ export default function App() {
                         </p>
                       )}
                     </div>
-                  )}
+                    );
+                  })()}
 
                   {/* AUDITOR PANEL */}
-                  {selectedRole === 'AUDITOR' && (
+                  {selectedRole === 'AUDITOR' && (() => {
+                    const isOwner = walletConnected && walletAddress.toLowerCase() === activeTask.project_owner.toLowerCase();
+                    const isAssignedAuditor = walletConnected && Boolean(activeTask.auditor) && walletAddress.toLowerCase() === activeTask.auditor.toLowerCase();
+
+                    return (
                     <div className="flex flex-col gap-4 font-mono">
                       {activeTask.status === 'OPEN' && (
                         <div className="flex flex-col gap-3">
+                          {isOwner && (
+                            <div className="p-3 bg-amber-950/30 border border-amber-800/70 rounded text-amber-300 text-xs flex items-start gap-2">
+                              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                              <div>
+                                <div className="font-bold">Role Constraint: Connected as Project Owner</div>
+                                <p className="text-amber-300/80 mt-1">
+                                  Smart contract security rules strictly prohibit creators from auditing their own circuits. To stake 20% deposit ({(parseFloat(activeTask.escrow_amount) / 1e18) * 0.2} GEN) and accept this task, please switch to an independent Auditor account (e.g. Account 2) in MetaMask.
+                                </p>
+                              </div>
+                            </div>
+                          )}
                           <p className="text-slate-300">
                             Lock this bounty to submit a witness file counterexample. Staking 20% security deposit ({(parseFloat(activeTask.escrow_amount) / 1e18) * 0.2} GEN) is required.
                           </p>
                           <div>
                             <button
                               onClick={handleAcceptBounty}
-                              disabled={isLoading || !walletConnected}
+                              disabled={isLoading || !walletConnected || isOwner}
                               className="px-4 py-2 bg-gradient-to-r from-purple-800 to-purple-600 hover:from-purple-700 hover:to-purple-500 border border-purple-600 text-slate-100 rounded font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+                              title={isOwner ? "Project Owner cannot audit their own task. Switch MetaMask account." : ""}
                             >
                               <Lock className="w-4 h-4 text-purple-200" /> Stake & Accept Audit Task
                             </button>
@@ -1415,42 +1447,55 @@ export default function App() {
                       )}
 
                       {activeTask.status === 'IN_PROGRESS' && (
-                        <form onSubmit={handleSubmitCounterexample} className="flex flex-col gap-3">
-                          <p className="text-slate-300 text-xs">
-                            Submit a counterexample / PoC witness script providing mathematical values that satisfy or break the circuit constraints.
-                          </p>
-                          <div className="flex flex-col gap-2">
-                            <div>
-                              <label className="text-[10px] text-slate-500 block font-bold mb-1">WITNESS SCRIPT HTTP/HTTPS URL</label>
-                              <input
-                                type="url"
-                                required
-                                value={exploitUrl}
-                                onChange={(e) => setExploitUrl(e.target.value)}
-                                placeholder="https://raw.githubusercontent.com/.../witness.json"
-                                className="w-full bg-slate-950 border border-purple-950/80 rounded p-2 text-xs font-mono focus:outline-none focus:border-purple-600 text-slate-300"
-                              />
+                        <div className="flex flex-col gap-3">
+                          {!isAssignedAuditor && (
+                            <div className="p-3 bg-amber-950/30 border border-amber-800/70 rounded text-amber-300 text-xs flex items-start gap-2">
+                              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                              <div>
+                                <div className="font-bold">Role Constraint: Not the Assigned Auditor</div>
+                                <p className="text-amber-300/80 mt-1">
+                                  Only the assigned auditor (<span className="font-mono text-amber-200">{activeTask.auditor}</span>) can submit counterexamples for this bounty.
+                                </p>
+                              </div>
                             </div>
-                            <div>
-                              <label className="text-[10px] text-slate-500 block font-bold mb-1">WITNESS SCRIPT SHA-256 HASH</label>
-                              <input
-                                type="text"
-                                required
-                                value={exploitHash}
-                                onChange={(e) => setExploitHash(e.target.value)}
-                                placeholder="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-                                className="w-full bg-slate-950 border border-purple-950/80 rounded p-2 text-xs font-mono focus:outline-none focus:border-purple-600 text-slate-300"
-                              />
+                          )}
+                          <form onSubmit={handleSubmitCounterexample} className="flex flex-col gap-3">
+                            <p className="text-slate-300 text-xs">
+                              Submit a counterexample / PoC witness script providing mathematical values that satisfy or break the circuit constraints.
+                            </p>
+                            <div className="flex flex-col gap-2">
+                              <div>
+                                <label className="text-[10px] text-slate-500 block font-bold mb-1">WITNESS SCRIPT HTTP/HTTPS URL</label>
+                                <input
+                                  type="url"
+                                  required
+                                  value={exploitUrl}
+                                  onChange={(e) => setExploitUrl(e.target.value)}
+                                  placeholder="https://raw.githubusercontent.com/.../witness.json"
+                                  className="w-full bg-slate-950 border border-purple-950/80 rounded p-2 text-xs font-mono focus:outline-none focus:border-purple-600 text-slate-300"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-slate-500 block font-bold mb-1">WITNESS SCRIPT SHA-256 HASH</label>
+                                <input
+                                  type="text"
+                                  required
+                                  value={exploitHash}
+                                  onChange={(e) => setExploitHash(e.target.value)}
+                                  placeholder="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                                  className="w-full bg-slate-950 border border-purple-950/80 rounded p-2 text-xs font-mono focus:outline-none focus:border-purple-600 text-slate-300"
+                                />
+                              </div>
                             </div>
-                          </div>
-                          <button
-                            type="submit"
-                            disabled={isLoading || !walletConnected}
-                            className="px-4 py-2 bg-purple-900 hover:bg-purple-800 border border-purple-600 text-purple-200 rounded font-bold transition flex items-center gap-1.5 cursor-pointer self-start disabled:opacity-50 mt-1"
-                          >
-                            <Send className="w-4 h-4" /> Submit Counterexample to Consensus
-                          </button>
-                        </form>
+                            <button
+                              type="submit"
+                              disabled={isLoading || !walletConnected || !isAssignedAuditor}
+                              className="px-4 py-2 bg-purple-900 hover:bg-purple-800 border border-purple-600 text-purple-200 rounded font-bold transition flex items-center gap-1.5 cursor-pointer self-start disabled:opacity-50 mt-1"
+                            >
+                              <Send className="w-4 h-4" /> Submit Counterexample to Consensus
+                            </button>
+                          </form>
+                        </div>
                       )}
 
                       {activeTask.status === 'NEEDS_REVISION' && (
@@ -1541,7 +1586,8 @@ export default function App() {
                         </p>
                       )}
                     </div>
-                  )}
+                    );
+                  })()}
 
                 </div>
               </section>
