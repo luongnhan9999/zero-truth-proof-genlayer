@@ -76,53 +76,8 @@ export default function App() {
       localStorage.setItem('ztp_contract_address', addr);
     }
   };
-  const DEFAULT_TEST_TASKS: ZKAuditTask[] = [
-    {
-      id: 'zk-dispute-10gen-audit',
-      project_owner: '0x52C5E981792b04fB14C5110E70a597a76c5661F8',
-      auditor: '0x1F595c0D549DE0812F127508ea1039636CFA62Cc',
-      escrow_amount: '10000000000000000000', // 10 GEN
-      auditor_stake: '2000000000000000000',  // 2 GEN
-      status: 'DISPUTED',
-      circuit_url: 'https://raw.githubusercontent.com/luongnhan9999/zero-truth-proof-genlayer/main/circuits/Multiplier2.r1cs.json',
-      circuit_hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-      proof_of_exploit_url: 'https://raw.githubusercontent.com/luongnhan9999/zero-truth-proof-genlayer/main/circuits/witness_multiplier2.json',
-      exploit_hash: '3a18e24f79435bc299e5c43d92823db971ea9be85a9757f4f46998b3fbe3f6b4',
-      circuit_framework: 'Circom 2.1 v2.1.6 / Groth16',
-      constraint_focus: 'Arbitration soundness check (Complexity: 1 constraint)',
-      source_commit: '857e022',
-      verdict: 'NONE',
-      reason: 'Project owner disputes exploit: Witness values satisfy arithmetic matrix but owner challenges primary constraint uniqueness.',
-      confidence: '95',
-      attempts: '1',
-      payout_ready_at: String(Math.floor(Date.now() / 1000) + 300),
-      disputed_at: String(Math.floor(Date.now() / 1000) - 600)
-    },
-    {
-      id: 'zk-multiplier-happy-10gen',
-      project_owner: '0x52C5E981792b04fB14C5110E70a597a76c5661F8',
-      auditor: '',
-      escrow_amount: '10000000000000000000', // 10 GEN
-      auditor_stake: '0',
-      status: 'OPEN',
-      circuit_url: 'https://raw.githubusercontent.com/luongnhan9999/zero-truth-proof-genlayer/main/circuits/Multiplier2.r1cs.json',
-      circuit_hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-      proof_of_exploit_url: '',
-      exploit_hash: '',
-      circuit_framework: 'Circom 2.1 v2.1.6 / Groth16',
-      constraint_focus: 'Under-constrained R1CS multiplier audit',
-      source_commit: '857e022',
-      verdict: 'NONE',
-      reason: '',
-      confidence: '0',
-      attempts: '0',
-      payout_ready_at: '0',
-      disputed_at: '0'
-    }
-  ];
-
-  const [tasks, setTasks] = useState<ZKAuditTask[]>(DEFAULT_TEST_TASKS);
-  const [selectedTaskId, setSelectedTaskId] = useState<string>('zk-dispute-10gen-audit');
+  const [tasks, setTasks] = useState<ZKAuditTask[]>([]);
+  const [selectedTaskId, setSelectedTaskId] = useState<string>('');
   
   // Visualizer code viewer states
   const [circuitCode, setCircuitCode] = useState('// Select a task to load circuit code');
@@ -494,17 +449,13 @@ export default function App() {
       });
       
       const parsedTasks = JSON.parse(res as string);
-      if (Array.isArray(parsedTasks) && parsedTasks.length > 0) {
+      if (Array.isArray(parsedTasks)) {
         setTasks(parsedTasks);
-        addLog(`[CONTRACT] Successfully retrieved ${parsedTasks.length} tasks from chain.`);
-        if (!selectedTaskId) {
+        addLog(`[CONTRACT] Read complete. Found ${parsedTasks.length} real on-chain tasks.`);
+        if (parsedTasks.length > 0 && !selectedTaskId) {
           setSelectedTaskId(parsedTasks[0].id);
-        }
-      } else {
-        setTasks(DEFAULT_TEST_TASKS);
-        addLog(`[CONTRACT] Contract active on StudioNet (0 tasks created yet). Loaded 10 GEN dispute test task for immediate arbitration testing.`);
-        if (!selectedTaskId) {
-          setSelectedTaskId(DEFAULT_TEST_TASKS[0].id);
+        } else if (parsedTasks.length === 0) {
+          setSelectedTaskId('');
         }
       }
 
@@ -524,11 +475,9 @@ export default function App() {
       }
     } catch (err: any) {
       console.error(err);
-      addLog(`[CONTRACT WARNING] Read contract: ${err.message || err}. Loaded 10 GEN dispute test task.`);
-      setTasks(DEFAULT_TEST_TASKS);
-      if (!selectedTaskId) {
-        setSelectedTaskId(DEFAULT_TEST_TASKS[0].id);
-      }
+      addLog(`[CONTRACT READ ERROR] Read get_all_tasks failed: ${err.message || err}`);
+      setTasks([]);
+      setSelectedTaskId('');
     } finally {
       setIsLoading(false);
     }
@@ -828,24 +777,8 @@ export default function App() {
   // Action: Admin Resolve Escalation
   const handleResolveEscalation = async () => {
     if (!activeTask) return;
-
-    // Immediate interactive arbitration execution for the test task or without wallet
-    if (activeTask.id === 'zk-dispute-10gen-audit' || !walletConnected || !genlayerClient) {
-      setIsLoading(true);
-      addLog(`[ARBITRATION] Executing manual dispute resolution (${arbitrationAction}) for ${activeTask.id}...`);
-      setTimeout(() => {
-        if (arbitrationAction === 'RELEASE') {
-          addLog(`[SETTLEMENT] Phán quyết RELEASE: 10 GEN escrow + 2 GEN stake được giải ngân cho Auditor.`);
-          setTasks(prev => prev.map(t => t.id === activeTask.id ? { ...t, status: 'CLOSED', verdict: 'APPROVED', reason: 'Owner voluntarily conceded dispute: 10 GEN released to Auditor.' } : t));
-        } else if (arbitrationAction === 'REFUND') {
-          addLog(`[SETTLEMENT] Phán quyết REFUND: 10 GEN escrow được hoàn trả về cho Owner; 2 GEN stake bị tịch thu.`);
-          setTasks(prev => prev.map(t => t.id === activeTask.id ? { ...t, status: 'CLOSED', verdict: 'REFUND', reason: 'Auditor conceded dispute: 10 GEN refunded to Owner.' } : t));
-        } else {
-          addLog(`[SETTLEMENT] Phán quyết SPLIT: Quỹ 10 GEN escrow được phân chia công bằng theo tỷ lệ trọng tài.`);
-          setTasks(prev => prev.map(t => t.id === activeTask.id ? { ...t, status: 'CLOSED', verdict: 'PARTIAL', reason: 'Arbitration split agreement executed.' } : t));
-        }
-        setIsLoading(false);
-      }, 1000);
+    if (!walletConnected || !genlayerClient) {
+      alert('Connect wallet first.');
       return;
     }
 
@@ -864,9 +797,9 @@ export default function App() {
           genlayerClient.waitForTransactionReceipt({ hash }),
           new Promise((_, r) => setTimeout(() => r(new Error('Timeout waiting for finalization')), 12000))
         ]);
-        addLog(`[CHAIN CONFIRMED] Escalation resolved.`);
+        addLog(`[CHAIN CONFIRMED] Escalation resolved on-chain. Hash: ${hash}`);
       } catch (e) {
-        addLog(`[CHAIN WARNING] Escalation transaction sent.`);
+        addLog(`[CHAIN WARNING] Escalation transaction sent. Hash: ${hash}`);
       }
       await new Promise(r => setTimeout(r, 2000));
       await fetchTasksFromContract();
@@ -881,31 +814,14 @@ export default function App() {
   // Action: Multi-Validator Consensus Dispute Adjudication
   const handleResolveDisputeConsensus = async () => {
     if (!activeTask) return;
-
-    // Interactive multi-validator AI consensus simulation for the 10 GEN test task or without wallet
-    if (activeTask.id === 'zk-dispute-10gen-audit' || !walletConnected || !genlayerClient) {
-      setIsLoading(true);
-      addLog(`[ARBITRATION] Kích hoạt GenLayer Multi-Validator AI Consensus cho ${activeTask.id}...`);
-      addLog(`[ESCROW TELEMETRY] Quỹ ký quỹ đang tranh chấp: 10 GEN | Tiền cọc Auditor: 2 GEN`);
-      addLog(`[VALIDATOR 1 - node-alpha] Đang trích xuất và thẩm tra ma trận R1CS Multiplier2...`);
-      
-      setTimeout(() => {
-        addLog(`[VALIDATOR 2 - node-beta] Kiểm tra biểu thức trường hữu hạn BN254: 3 * 7 ≡ 21 (mod p) KHỚP 100%.`);
-      }, 600);
-
-      setTimeout(() => {
-        addLog(`[VALIDATOR 3 - node-gamma] Thẩm tra lý do khiếu nại của Owner: Bác bỏ lý do (Exploit witness hợp lệ và đúng quy chuẩn Circom).`);
-        addLog(`[CONSENSUS REACHED] Phán quyết trọng tài đa validator: APPROVED (Đồng thuận tuyệt đối 3/3).`);
-        addLog(`[SETTLEMENT] Safe transfer hoàn tất: Giải ngân 10 GEN bounty + hoàn 2 GEN stake cho Auditor!`);
-        setTasks(prev => prev.map(t => t.id === activeTask.id ? { ...t, status: 'CLOSED', verdict: 'APPROVED', reason: 'Consensus resolved in favor of auditor. 10 GEN released.' } : t));
-        setIsLoading(false);
-      }, 1500);
+    if (!walletConnected || !genlayerClient) {
+      alert('Connect wallet first.');
       return;
     }
 
     try {
       setIsLoading(true);
-      addLog(`[CHAIN TX] Invoking resolve_dispute_consensus for task ${activeTask.id}...`);
+      addLog(`[CHAIN TX] Invoking resolve_dispute_consensus on-chain for task ${activeTask.id}...`);
       
       const hash = await genlayerClient.writeContract({
         address: contractAddress as `0x${string}`,
@@ -918,9 +834,9 @@ export default function App() {
           genlayerClient.waitForTransactionReceipt({ hash }),
           new Promise((_, r) => setTimeout(() => r(new Error('Timeout waiting for finalization')), 15000))
         ]);
-        addLog(`[CHAIN CONFIRMED] Multi-validator dispute consensus completed.`);
+        addLog(`[CHAIN CONFIRMED] Multi-validator dispute consensus completed on-chain. Hash: ${hash}`);
       } catch (e) {
-        addLog(`[CHAIN WARNING] Consensus arbitration transaction sent.`);
+        addLog(`[CHAIN WARNING] Consensus arbitration transaction broadcasted. Hash: ${hash}`);
       }
       await new Promise(r => setTimeout(r, 2000));
       await fetchTasksFromContract();
@@ -931,6 +847,7 @@ export default function App() {
       setIsLoading(false);
     }
   };
+
 
   return (
     <div className="min-h-screen text-slate-100 flex flex-col relative font-terminal overflow-x-hidden selection:bg-purple-900 selection:text-white">
