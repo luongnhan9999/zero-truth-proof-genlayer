@@ -25,6 +25,7 @@ class MockGL:
         def __init__(self):
             self.tasks = {}
             self.task_ids = []
+            self.withdrawable_balances = {}
             self.platform_admin = "0xadmin"
 
     class public:
@@ -334,6 +335,7 @@ class TestContractIntegration(unittest.TestCase):
         self.contract = contract_module.Contract()
         self.contract.tasks = {}
         self.contract.task_ids = []
+        self.contract.withdrawable_balances = {}
 
         self.tid = "zk_merkle_tree_circuit_01"
         self.circuit_code = "pragma circom 2.1.6;\ntemplate MerkleProof() {\n    signal input path_index;\n    signal output root;\n    path_index === 1;\n}"
@@ -771,6 +773,64 @@ class TestContractIntegration(unittest.TestCase):
         with self.assertRaises(MockUserError):
             self.contract.resolve_dispute_consensus(self.tid)
         self.gl.vm.run_nondet = original_run_nondet
+
+    def test_28_compiler_backed_r1cs_artifact_passes(self):
+        """Compiler-backed R1CS artifact verification succeeds with satisfied constraints."""
+        import json
+        artifact = json.dumps({
+            "prime": "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+            "nVars": 4, "nConstraints": 1,
+            "constraints": [[{"2": "1"}, {"3": "1"}, {"1": "1"}]],
+            "signal_map": {"one": 0, "c": 1, "a": 2, "b": 3}
+        })
+        witness = json.dumps({"a": 3, "b": 7, "c": 21})
+        res = contract_module.R1CSConstraintVerifier.verify(artifact, witness)
+        self.assertTrue(res["verified"])
+        self.assertEqual(res["stage"], "COMPLETE")
+        self.assertIn("Compiler-backed", res["reason"])
+
+    def test_29_compiler_backed_r1cs_artifact_fails(self):
+        """Compiler-backed R1CS artifact rejects violated constraints."""
+        import json
+        artifact = json.dumps({
+            "prime": "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+            "nVars": 4, "nConstraints": 1,
+            "constraints": [[{"2": "1"}, {"3": "1"}, {"1": "1"}]],
+            "signal_map": {"one": 0, "c": 1, "a": 2, "b": 3}
+        })
+        witness = json.dumps({"a": 3, "b": 7, "c": 999})
+        res = contract_module.R1CSConstraintVerifier.verify(artifact, witness)
+        self.assertFalse(res["verified"])
+        self.assertEqual(res["stage"], "R1CS_VERIFICATION")
+
+    def test_30_compiler_backed_r1cs_underconstrained(self):
+        """Compiler-backed R1CS artifact rejects zero-constraint under-constrained circuits."""
+        import json
+        buggy = json.dumps({
+            "prime": "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+            "nVars": 3, "nConstraints": 0, "constraints": [],
+            "signal_map": {"one": 0, "out": 1, "x": 2}
+        })
+        witness = json.dumps({"x": 5, "out": 9999})
+        res = contract_module.R1CSConstraintVerifier.verify(buggy, witness)
+        self.assertFalse(res["verified"])
+        self.assertIn("under-constrained", res["reason"].lower())
+
+    def test_31_withdrawable_balances_and_withdraw(self):
+        """Pull-over-Push withdrawable balance lookup and withdrawal."""
+        user = "0xauditor123"
+        self.assertEqual(self.contract.get_withdrawable_balance(user), "0")
+        
+        # Credit user
+        self.contract.withdrawable_balances[user.lower()] = MockBigInt(500)
+        self.assertEqual(self.contract.get_withdrawable_balance(user), "500")
+
+        # Withdraw
+        self.gl.message.sender_address = MockAddress(user)
+        self.contract.withdraw()
+        self.assertEqual(self.contract.get_withdrawable_balance(user), "0")
+        self.assertEqual(len(self.gl.transfers), 1)
+        self.assertEqual(self.gl.transfers[0]["value"], 500)
 
 
 if __name__ == "__main__":

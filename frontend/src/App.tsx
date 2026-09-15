@@ -49,6 +49,7 @@ export default function App() {
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState('');
   const [walletBalance, setWalletBalance] = useState('0');
+  const [withdrawableBalance, setWithdrawableBalance] = useState('0');
   const [selectedRole, setSelectedRole] = useState<'OWNER' | 'AUDITOR'>('OWNER');
   
   // Smart Contract Info (Default test address, can be configured in UI)
@@ -435,10 +436,50 @@ export default function App() {
           setSelectedTaskId(parsedTasks[0].id);
         }
       }
+
+      // Query withdrawable balance for connected wallet
+      if (walletAddress) {
+        try {
+          const wBal = await client.readContract({
+            address: contractAddress as `0x${string}`,
+            functionName: 'get_withdrawable_balance',
+            args: [walletAddress]
+          });
+          const wBalGEN = Number(BigInt(wBal as string || '0')) / 1e18;
+          setWithdrawableBalance(wBalGEN > 0 ? `${wBalGEN.toFixed(2)} GEN` : '0');
+        } catch (wbErr) {
+          console.error('Withdrawable balance fetch failed:', wbErr);
+        }
+      }
     } catch (err: any) {
       console.error(err);
       addLog(`[CONTRACT ERROR] Read contract failed: ${err.message || err}`);
       setTasks([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Claim funds from Pull-over-Push safety net
+  const handleWithdraw = async () => {
+    if (!genlayerClient || !walletAddress) {
+      alert('Please connect your wallet first.');
+      return;
+    }
+    try {
+      setIsLoading(true);
+      addLog('[WITHDRAW] Claiming withdrawable balance via pull-over-push safety net...');
+      const txHash = await genlayerClient.writeContract({
+        address: contractAddress as `0x${string}`,
+        functionName: 'withdraw',
+        args: [],
+        value: 0n
+      });
+      addLog(`[WITHDRAW SUCCESS] Withdrawal transaction submitted: ${txHash}`);
+      await fetchTasksFromContract();
+    } catch (err: any) {
+      console.error(err);
+      addLog(`[WITHDRAW ERROR] Withdrawal failed: ${err.message || err}`);
     } finally {
       setIsLoading(false);
     }
@@ -839,6 +880,15 @@ export default function App() {
                 <span className="text-slate-400 font-mono truncate max-w-[100px]" title={walletAddress}>{walletAddress}</span>
               </div>
               <span className="text-emerald-400 font-bold border-l border-slate-900 pl-2">Studionet ({walletBalance})</span>
+              {withdrawableBalance !== '0' && (
+                <button
+                  onClick={handleWithdraw}
+                  className="px-2 py-0.5 bg-amber-950/80 hover:bg-amber-900 border border-amber-500/60 text-amber-300 rounded text-[10px] font-bold transition flex items-center gap-1 cursor-pointer animate-pulse"
+                  title="Claim payout balance from pull-over-push safety net"
+                >
+                  Claim: {withdrawableBalance}
+                </button>
+              )}
               <button 
                 onClick={disconnectWallet}
                 className="px-2.5 py-1 bg-rose-950/60 hover:bg-rose-900 border border-rose-800/40 hover:border-rose-600 text-rose-300 rounded text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"

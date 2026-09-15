@@ -1,0 +1,15 @@
+{
+  "prime": "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+  "nVars": 3,
+  "nConstraints": 0,
+  "nOutputs": 1,
+  "nPubInputs": 0,
+  "nPrvInputs": 1,
+  "signal_map": {
+    "one": 0,
+    "out": 1,
+    "x": 2
+  },
+  "constraints": [],
+  "_note": "BuggySquare uses <-- (unconstrained assignment) instead of <== (constrained assignment). This means out is assigned x*x but NO R1CS constraint enforces it. A malicious prover can set out to ANY value and produce a valid proof. This is a critical under-constrained signal vulnerability."
+}
