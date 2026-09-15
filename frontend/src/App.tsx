@@ -875,7 +875,7 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-wider text-purple-200 flex items-center gap-2">
-              ZEROTRUTHPROOF <span className="text-xs px-2 py-0.5 bg-purple-900/60 border border-purple-700/50 rounded-full text-purple-300">V0.2.18</span>
+              ZEROTRUTHPROOF <span className="text-xs px-2 py-0.5 bg-purple-900/60 border border-purple-700/50 rounded-full text-purple-300">V0.3.0</span>
             </h1>
             <p className="text-xs text-slate-400 tracking-tight">Autonomous ZK-SNARK Circuit Audit & Formal Verification Escrow</p>
           </div>
@@ -1506,6 +1506,12 @@ export default function App() {
                           <p className="text-slate-400 text-xs">
                             Reason: <span className="font-mono text-slate-300">{activeTask.reason}</span>
                           </p>
+                          {!isAssignedAuditor && (
+                            <div className="p-2.5 bg-amber-950/30 border border-amber-800/70 rounded text-amber-300 text-xs flex items-start gap-2">
+                              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                              <span>Only the assigned auditor (<span className="font-mono text-amber-200">{activeTask.auditor}</span>) can resubmit counterexamples.</span>
+                            </div>
+                          )}
                           <form onSubmit={handleSubmitCounterexample} className="flex flex-col gap-2 mt-2">
                             <input
                               type="url"
@@ -1525,7 +1531,7 @@ export default function App() {
                             />
                             <button
                               type="submit"
-                              disabled={isLoading || !walletConnected}
+                              disabled={isLoading || !walletConnected || !isAssignedAuditor}
                               className="px-4 py-2 bg-amber-950 hover:bg-amber-900 border border-amber-700 text-amber-200 rounded font-bold transition flex items-center gap-1.5 self-start cursor-pointer mt-1"
                             >
                               <Send className="w-4 h-4" /> Resubmit Counterexample (Attempt 2)
