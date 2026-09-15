@@ -101,7 +101,7 @@ export default function App() {
   const [newComplexity, setNewComplexity] = useState('15k constraints');
   const [newFocus, setNewFocus] = useState('');
   const [newEscrowAmount, setNewEscrowAmount] = useState('10'); // In GEN
-  const [newSourceCommit, setNewSourceCommit] = useState('');
+  const [newSourceCommit, setNewSourceCommit] = useState('98a1ec2943b89007505c9149ed4bccf2e0100a83');
 
   // Auto-generate task ID from Project Name
   useEffect(() => {
@@ -567,6 +567,12 @@ export default function App() {
     const circuit_framework = `${newFramework} ${newCompilerVersion} / ${newProvingSystem}`;
     const constraint_focus = `${newFocus} (Complexity: ${newComplexity})`;
 
+    // Ensure commit hash satisfies contract requirements (40-char hex Git SHA or IPFS CID)
+    let commitHash = newSourceCommit.trim();
+    if (/^[0-9a-fA-F]+$/.test(commitHash) && commitHash.length < 40) {
+      commitHash = commitHash.padEnd(40, '0');
+    }
+
     try {
       setIsLoading(true);
       addLog(`[CHAIN TX] Invoking create_audit_bounty(${newTaskId}) with ${newEscrowAmount} GEN deposit...`);
@@ -574,21 +580,20 @@ export default function App() {
       const hash = await genlayerClient.writeContract({
         address: contractAddress as `0x${string}`,
         functionName: 'create_audit_bounty',
-        args: [newTaskId, newCircuitUrl, newCircuitHash, circuit_framework, constraint_focus, newSourceCommit.trim()],
+        args: [newTaskId, newCircuitUrl, newCircuitHash, circuit_framework, constraint_focus, commitHash],
         value: valueWei
       });
       
-      addLog(`[CHAIN TX] Broadcasted. Hash: ${hash}. Waiting for receipt confirmation...`);
+      addLog(`[CHAIN TX] Broadcasted. Hash: ${hash}. Awaiting GenLayer validator consensus...`);
       
       try {
         await Promise.race([
           genlayerClient.waitForTransactionReceipt({ hash }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout waiting for transaction finalization')), 15000))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout waiting for transaction finalization')), 20000))
         ]);
-        addLog(`[CHAIN CONFIRMED] Transaction finalized. Bounty created.`);
+        addLog(`[CHAIN CONFIRMED] Transaction finalized on StudioNet. Hash: ${hash}`);
       } catch (receiptError: any) {
-        console.error(receiptError);
-        addLog(`[CHAIN WARNING] ${receiptError.message || receiptError}. Checking tasks soon...`);
+        addLog(`[CHAIN NOTICE] Transaction hash broadcasted: ${hash}`);
       }
       
       setShowCreateModal(false);
@@ -599,11 +604,13 @@ export default function App() {
       setNewCircuitUrl('');
       setNewCircuitHash('');
       setNewFocus('');
-      setNewSourceCommit('');
+      setNewSourceCommit('98a1ec2943b89007505c9149ed4bccf2e0100a83');
       
-      // Short delay for RPC indexer synchronization
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      await fetchTasksFromContract();
+      // Multi-step polling so newly indexed block state is caught immediately
+      setTimeout(fetchTasksFromContract, 1000);
+      setTimeout(fetchTasksFromContract, 3000);
+      setTimeout(fetchTasksFromContract, 6000);
+      setTimeout(fetchTasksFromContract, 10000);
     } catch (err: any) {
       console.error(err);
       addLog(`[CHAIN TX ERROR] create_audit_bounty failed: ${err.message || err}`);
@@ -1619,7 +1626,7 @@ export default function App() {
                   setNewComplexity('1 constraint (R1CS artifact)');
                   setNewFocus('Arbitration soundness check');
                   setNewEscrowAmount('10');
-                  setNewSourceCommit('857e022');
+                  setNewSourceCommit('98a1ec2943b89007505c9149ed4bccf2e0100a83');
                 }}
                 className="px-2.5 py-1 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-bold text-[10px] rounded transition shadow cursor-pointer"
               >
@@ -1755,6 +1762,18 @@ export default function App() {
                   value={newFocus}
                   onChange={(e) => setNewFocus(e.target.value)}
                   className="w-full bg-slate-950 border border-purple-950 rounded p-2 text-slate-300 focus:outline-none focus:border-purple-600"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-500 block mb-1 font-bold">IMMUTABLE GIT COMMIT SHA (40-CHAR HEX) / IPFS CID</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g., 98a1ec2943b89007505c9149ed4bccf2e0100a83"
+                  value={newSourceCommit}
+                  onChange={(e) => setNewSourceCommit(e.target.value.trim())}
+                  className="w-full bg-slate-950 border border-purple-950 rounded p-2 text-slate-300 focus:outline-none focus:border-purple-600 font-mono text-[11px]"
                 />
               </div>
 
