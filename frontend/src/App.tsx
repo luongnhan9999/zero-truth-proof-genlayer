@@ -16,7 +16,9 @@ import {
   Settings, 
   Activity,
   User,
-  Zap
+  Zap,
+  ExternalLink,
+  RotateCcw
 } from 'lucide-react';
 import { createClient } from 'genlayer-js';
 import { studionet } from 'genlayer-js/chains';
@@ -52,8 +54,28 @@ export default function App() {
   const [withdrawableBalance, setWithdrawableBalance] = useState('0');
   const [selectedRole, setSelectedRole] = useState<'OWNER' | 'AUDITOR'>('OWNER');
   
-  // Smart Contract Info (Default test address, can be configured in UI)
-  const [contractAddress, setContractAddress] = useState('0xA7325A3633AF71201DC0538BB7B7871734c855Eb');
+  // Smart Contract Info (Default authoritative v0.3.0 deployed contract on StudioNet)
+  const DEFAULT_CONTRACT_ADDRESS = '0xA7325A3633AF71201DC0538BB7B7871734c855Eb';
+  const [contractAddress, setContractAddressState] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('ztp_contract_address');
+      if (saved && saved.startsWith('0x') && saved.length === 42) {
+        if (saved.toLowerCase() === '0x203877ae465609891b73e46a87f2356e8b8f5b37'.toLowerCase()) {
+          localStorage.setItem('ztp_contract_address', DEFAULT_CONTRACT_ADDRESS);
+          return DEFAULT_CONTRACT_ADDRESS;
+        }
+        return saved;
+      }
+    }
+    return DEFAULT_CONTRACT_ADDRESS;
+  });
+
+  const setContractAddress = (addr: string) => {
+    setContractAddressState(addr);
+    if (typeof window !== 'undefined' && addr.startsWith('0x') && addr.length === 42) {
+      localStorage.setItem('ztp_contract_address', addr);
+    }
+  };
   const [tasks, setTasks] = useState<ZKAuditTask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
   
@@ -859,17 +881,36 @@ export default function App() {
           </button>
 
           {/* Contract Address Config */}
-          <div className="flex items-center bg-slate-950 border border-purple-950/40 rounded px-2.5 py-1.5">
-            <Settings className="w-3.5 h-3.5 text-slate-500 mr-2" />
-            <span className="text-slate-500 mr-1.5 text-[10px]">CONTRACT:</span>
+          <div className="flex items-center bg-slate-950 border border-purple-950/40 rounded px-2.5 py-1.5" title={`Active Contract: ${contractAddress}`}>
+            <Settings className="w-3.5 h-3.5 text-slate-500 mr-2 shrink-0" />
+            <span className="text-slate-500 mr-1.5 text-[10px] shrink-0">CONTRACT:</span>
             <input
               type="text"
               value={contractAddress}
               onChange={(e) => setContractAddress(e.target.value.trim())}
               autoComplete="off"
               spellCheck={false}
-              className="bg-transparent text-[11px] text-purple-300 font-mono focus:outline-none w-28 text-ellipsis border-b border-transparent focus:border-purple-600"
+              title={contractAddress}
+              className="bg-transparent text-[11px] text-purple-300 font-mono focus:outline-none w-32 md:w-72 text-ellipsis border-b border-transparent focus:border-purple-600"
             />
+            {contractAddress.toLowerCase() !== DEFAULT_CONTRACT_ADDRESS.toLowerCase() && (
+              <button
+                onClick={() => setContractAddress(DEFAULT_CONTRACT_ADDRESS)}
+                title="Reset to default contract"
+                className="ml-1 text-slate-500 hover:text-amber-400 p-0.5 rounded transition cursor-pointer"
+              >
+                <RotateCcw className="w-3 h-3" />
+              </button>
+            )}
+            <a
+              href={`https://genlayer-explorer.vercel.app/address/${contractAddress}`}
+              target="_blank"
+              rel="noreferrer"
+              title="View contract on GenLayer Explorer"
+              className="ml-1.5 text-purple-400 hover:text-purple-200 transition shrink-0"
+            >
+              <ExternalLink className="w-3 h-3" />
+            </a>
           </div>
 
           {/* Connected wallet panel */}
