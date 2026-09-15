@@ -1,8 +1,8 @@
 # ZeroTruthProof: Autonomous Zero-Knowledge Circuit Audit & Formal Verification Escrow
 
 - **Live dApp (Vercel):** [https://zero-truth-proof-genlayer.vercel.app](https://zero-truth-proof-genlayer.vercel.app)
-- **Deployed Contract (StudioNet):** [`0x203877Ae465609891B73e46A87f2356e8b8F5B37`](https://genlayer-explorer.vercel.app/address/0x203877Ae465609891B73e46A87f2356e8b8F5B37)
-- **Studio Contract IDE:** [https://studio.genlayer.com/contracts/0x203877Ae465609891B73e46A87f2356e8b8F5B37](https://studio.genlayer.com/contracts/0x203877Ae465609891B73e46A87f2356e8b8F5B37)
+- **Deployed Contract (StudioNet):** [`0xA7325A3633AF71201DC0538BB7B7871734c855Eb`](https://genlayer-explorer.vercel.app/address/0xA7325A3633AF71201DC0538BB7B7871734c855Eb)
+- **Studio Contract IDE:** [https://studio.genlayer.com/contracts/0xA7325A3633AF71201DC0538BB7B7871734c855Eb](https://studio.genlayer.com/contracts/0xA7325A3633AF71201DC0538BB7B7871734c855Eb)
 - **GitHub Repository:** [https://github.com/luongnhan9999/zero-truth-proof-genlayer](https://github.com/luongnhan9999/zero-truth-proof-genlayer)
 - **Protocol Version:** `v0.3.0` (Compiler-Backed R1CS, Real GenVM Tests, Canonical Transfer & Pull-over-Push Settlement)
 - **Technical Documentation:**
@@ -154,7 +154,11 @@ All smart contract interactions have been executed, validated, and permanently r
 
 | Contract & Scenario | Transaction Type | Transaction Hash | Explorer Link | Resulting State & Verdict |
 | :--- | :--- | :--- | :--- | :--- |
-| **Current Deployed Contract** | Contract Address | `0x203877Ae465609891B73e46A87f2356e8b8F5B37` | [View Address](https://genlayer-explorer.vercel.app/address/0x203877Ae465609891B73e46A87f2356e8b8F5B37) | Deployed from Authoritative User Wallet |
+| **Current Deployed Contract (v0.3.0)** | Contract Address | `0xA7325A3633AF71201DC0538BB7B7871734c855Eb` | [View Address](https://genlayer-explorer.vercel.app/address/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | Deployed & Active on StudioNet |
+| **Compiler-Backed R1CS Happy-Path** | `create_audit_bounty` | Pending / Active | [View Address](https://genlayer-explorer.vercel.app/address/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | Status: `OPEN` (1 GEN escrow, Multiplier2 R1CS Artifact) |
+| (`zk-multiplier-happy-01`) | `accept_audit_task` | Pending / Active | [View Address](https://genlayer-explorer.vercel.app/address/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | Status: `IN_PROGRESS` (0.2 GEN stake deposited) |
+| | `submit_counterexample` | Pending / Active | [View Address](https://genlayer-explorer.vercel.app/address/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | R1CS Matrix Evaluated |
+| | `finalize_payout` / `resolve_escalation` | Pending / Active | [View Address](https://genlayer-explorer.vercel.app/address/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | Status: `CLOSED`, Result: `SUCCESS` (Safe Settlement via Native bigint) |
 | **R1CS & Slashing Flow** | `create_audit_bounty` | `0x7b778ccb20fb151e7873f2d8595052a7f8ee7d226bde92ff31dfec7820a17b6c` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x7b778ccb20fb151e7873f2d8595052a7f8ee7d226bde92ff31dfec7820a17b6c) | Status: `OPEN` (1 GEN escrow, Pinned Commit) |
 | (`zk-slashing-1789292003206`) | `accept_audit_task` | `0xbbb17a6d03922dfe1e40883d2d1d86669bbc4bf627d4490cd5e7a221c22702ce` | [View Tx](https://genlayer-explorer.vercel.app/tx/0xbbb17a6d03922dfe1e40883d2d1d86669bbc4bf627d4490cd5e7a221c22702ce) | Status: `IN_PROGRESS` (0.2 GEN stake deposited) |
 | | `submit_counterexample` (1) | `0x197d58f27b9188e6f58146a250469431edb3de46f60585805c7f4bf4f685049f` | [View Tx](https://genlayer-explorer.vercel.app/tx/0x197d58f27b9188e6f58146a250469431edb3de46f60585805c7f4bf4f685049f) | Status: `NEEDS_REVISION`, Attempts: 1, R1CS Deterministic Failure |
