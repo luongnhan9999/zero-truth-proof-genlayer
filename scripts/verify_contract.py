@@ -19,27 +19,27 @@ def main():
         sys.exit(result_mock.returncode)
     print("[Stage 1] Mock test suite PASSED.\n")
 
-    # ── Stage 2: GenVM integration tests via gltest (if available) ──
-    print("[Stage 2] Running gltest GenVM integration suite (test_gltest_suite.py)...")
-    gltest_file = os.path.join(repo_root, "tests", "test_gltest_suite.py")
+    # ── Stage 2: Real GenVM execution tests via gltest (ZERO MOCKS) ──
+    print("[Stage 2] Running real GenVM execution suites (test_genlayer_runtime.py + test_gltest_suite.py)...")
+    gltest_files = [
+        os.path.join(repo_root, "tests", "test_genlayer_runtime.py"),
+        os.path.join(repo_root, "tests", "test_gltest_suite.py")
+    ]
     
-    if not os.path.exists(gltest_file):
-        print("[SKIP] test_gltest_suite.py not found.")
-    else:
-        try:
-            result_gltest = subprocess.run(
-                [sys.executable, "-m", "pytest", gltest_file, "-v", "--tb=short"],
-                cwd=repo_root,
-                timeout=300
-            )
-            if result_gltest.returncode != 0:
-                print("\n[WARNING] gltest suite had failures (may require GenVM runtime).")
-            else:
-                print("[Stage 2] gltest suite PASSED.\n")
-        except FileNotFoundError:
-            print("[SKIP] pytest not installed; skipping gltest suite.")
-        except subprocess.TimeoutExpired:
-            print("[TIMEOUT] gltest suite exceeded 5-minute timeout.")
+    try:
+        result_gltest = subprocess.run(
+            [sys.executable, "-m", "pytest", *gltest_files, "-v", "--tb=short"],
+            cwd=repo_root,
+            timeout=300
+        )
+        if result_gltest.returncode != 0:
+            print("\n[WARNING] gltest suite had failures (may require GenVM runtime).")
+        else:
+            print("[Stage 2] gltest GenVM real execution suites PASSED.\n")
+    except FileNotFoundError:
+        print("[SKIP] pytest not installed; skipping gltest suite.")
+    except subprocess.TimeoutExpired:
+        print("[TIMEOUT] gltest suite exceeded 5-minute timeout.")
 
     print("\n[SUCCESS] Contract verification completed.")
     sys.exit(0)

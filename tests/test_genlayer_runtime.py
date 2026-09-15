@@ -1,115 +1,96 @@
-import sys
-import os
-import unittest
-import hashlib
+"""
+Real GenLayer Runtime Tests — Executed on GenVM Sandbox via gltest.
+
+CRITICAL: ZERO MOCKS. This test file runs directly within the official GenLayer
+GenVM runtime environment using direct_deploy and direct_vm fixtures.
+"""
+import pytest
 import json
-from unittest.mock import MagicMock
+from pathlib import Path
 
-# Configure lightweight GenLayer mock environment for running outside GenVM
-class MockAddress(str): pass
-class MockBigInt(int): pass
-class MockUserError(Exception): pass
+CONTRACT_PATH = Path(__file__).resolve().parent.parent / "contracts" / "ZeroTruthProof.py"
 
-class MockGL:
-    class Contract:
-        def __init__(self):
-            self.tasks = {}
-            self.task_ids = []
+MULTIPLIER2_R1CS = json.dumps({
+    "prime": "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+    "nVars": 4, "nOutputs": 1, "nPubInputs": 0, "nPrvInputs": 2,
+    "nConstraints": 1,
+    "constraints": [[{"2": "1"}, {"3": "1"}, {"1": "1"}]],
+    "signal_map": {"one": 0, "c": 1, "a": 2, "b": 3}
+})
 
-    class public:
-        @staticmethod
-        def view(fn): return fn
-        @staticmethod
-        def write(fn): return fn
 
-    class message:
-        value = MockBigInt(0)
-        sender_address = MockAddress("0xProjectOwner")
+class TestGenLayerRuntimeZK:
+    """Real GenVM runtime verification tests — no mock modules or patches."""
 
-    class evm:
-        @staticmethod
-        def contract_interface(cls):
-            return lambda addr: None
+    def test_01_finite_field_division_and_arithmetic_in_genvm(self, direct_deploy, direct_vm):
+        """Test exact BN254 finite field arithmetic inside GenVM execution engine."""
+        direct_deploy(str(CONTRACT_PATH))
+        import sys
+        mod = sys.modules['_contract_ZeroTruthProof']
+        verifier = mod.R1CSConstraintVerifier
+        p = mod.BN254_PRIME
 
-MockGL.public.write.payable = lambda fn: fn
-
-mock_mod = MagicMock()
-mock_mod.gl = MockGL()
-mock_mod.Address = MockAddress
-mock_mod.bigint = MockBigInt
-mock_mod.u256 = MockBigInt
-mock_mod.UserError = MockUserError
-mock_mod.TreeMap = dict
-mock_mod.DynArray = list
-mock_mod.allow_storage = lambda cls: cls
-
-sys.modules['genlayer'] = mock_mod
-
-# Add contracts directory to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'contracts')))
-
-try:
-    from ZeroTruthProof import R1CSConstraintVerifier, BN254_PRIME
-except ImportError:
-    from ZeroTruthProof_5 import R1CSConstraintVerifier, BN254_PRIME
-
-class TestGenLayerRuntimeZK(unittest.TestCase):
-    def test_01_finite_field_division_and_arithmetic(self):
-        """Test exact BN254 finite field division using Fermat inverse."""
         # 10 / 2 mod p == 5
-        res = R1CSConstraintVerifier.evaluate_expression("10 / 2", {})
-        self.assertEqual(res, 5)
+        res = verifier.evaluate_expression("10 / 2", {})
+        assert res == 5
 
         # (p - 1) + 2 mod p == 1
-        expr = f"({BN254_PRIME - 1} + 2)"
-        res2 = R1CSConstraintVerifier.evaluate_expression(expr, {})
-        self.assertEqual(res2, 1)
+        expr = f"({p - 1} + 2)"
+        res2 = verifier.evaluate_expression(expr, {})
+        assert res2 == 1
 
-    def test_02_array_and_component_expansion(self):
-        """Test compilation and constraint expansion for array signals and components."""
-        circuit = """
-        pragma circom 2.1.6;
-        template SubGate() {
-            signal input in;
-            signal output out;
-            out <== in * in;
-        }
-        template Main() {
-            signal input a[2];
-            signal output b;
-            component gate = SubGate();
-            gate.in <== a[0];
-            b <== gate.out + a[1];
-        }
-        component main = Main();
-        """
-        parsed = R1CSConstraintVerifier.parse_circuit(circuit)
-        self.assertTrue(parsed["valid_syntax"])
-        self.assertIn("a[0]", parsed["input_signals"])
-        self.assertIn("a[1]", parsed["input_signals"])
+    def test_02_compiler_backed_r1cs_artifact_execution(self, direct_deploy, direct_vm):
+        """Execute compiler-backed R1CS artifact verification within GenVM runtime."""
+        direct_deploy(str(CONTRACT_PATH))
+        import sys
+        mod = sys.modules['_contract_ZeroTruthProof']
+        verifier = mod.R1CSConstraintVerifier
 
-        # Valid witness evaluation
-        witness = json.dumps({"a[0]": 3, "a[1]": 4, "gate.in": 3, "gate.out": 9, "b": 13})
-        v_res = R1CSConstraintVerifier.verify(circuit, witness)
-        self.assertTrue(v_res["verified"])
+        # Valid witness: a=3, b=7, c=21
+        valid_w = json.dumps({"a": 3, "b": 7, "c": 21})
+        res = verifier.verify(MULTIPLIER2_R1CS, valid_w)
+        assert res["verified"] is True
+        assert res["stage"] == "COMPLETE"
+        assert "Compiler-backed" in res["reason"]
 
-    def test_03_invalid_witness_rejection_finite_field(self):
-        """Test deterministic rejection when witness violates finite-field equation."""
-        circuit = """
-        pragma circom 2.1.6;
-        template Multiplier() {
-            signal input x;
-            signal input y;
-            signal output z;
-            z <== x * y;
-        }
-        component main = Multiplier();
-        """
-        # 3 * 5 = 15 != 16
-        bad_witness = json.dumps({"x": 3, "y": 5, "z": 16})
-        v_res = R1CSConstraintVerifier.verify(circuit, bad_witness)
-        self.assertFalse(v_res["verified"])
-        self.assertEqual(v_res["stage"], "R1CS_VERIFICATION")
+    def test_03_invalid_witness_rejection_in_genvm(self, direct_deploy, direct_vm):
+        """Deterministic rejection of unsound witness in GenVM runtime."""
+        direct_deploy(str(CONTRACT_PATH))
+        import sys
+        mod = sys.modules['_contract_ZeroTruthProof']
+        verifier = mod.R1CSConstraintVerifier
 
-if __name__ == "__main__":
-    unittest.main()
+        # Invalid witness: a=3, b=7, c=999
+        invalid_w = json.dumps({"a": 3, "b": 7, "c": 999})
+        res = verifier.verify(MULTIPLIER2_R1CS, invalid_w)
+        assert res["verified"] is False
+        assert res["stage"] == "R1CS_VERIFICATION"
+
+    def test_04_bounty_lifecycle_on_chain_runtime(self, direct_deploy, direct_vm, direct_alice, direct_bob):
+        """Full payable escrow and staking lifecycle executed directly in GenVM."""
+        direct_vm.sender = direct_alice
+        direct_vm.value = 1_000_000_000_000_000_000  # 1 GEN escrow
+        contract = direct_deploy(str(CONTRACT_PATH))
+        direct_vm.warp("2026-09-15T12:00:00Z")
+
+        # 1. Create bounty
+        contract.create_audit_bounty(
+            "zk-runtime-task-01",
+            "https://raw.githubusercontent.com/example/circuit.circom",
+            "a" * 64,
+            "Circom 2.1 / Groth16 / R1CS",
+            "Under-constrained signals",
+            "b" * 40
+        )
+
+        # 2. Auditor accepts with 20% stake
+        direct_vm.sender = direct_bob
+        direct_vm.value = 200_000_000_000_000_000  # 0.2 GEN stake
+        contract.accept_audit_task("zk-runtime-task-01")
+
+        # 3. Query state from GenVM storage
+        tasks = json.loads(contract.get_all_tasks())
+        assert len(tasks) == 1
+        assert tasks[0]["status"] == "IN_PROGRESS"
+        assert int(tasks[0]["escrow_amount"]) == 1_000_000_000_000_000_000
+        assert int(tasks[0]["auditor_stake"]) == 200_000_000_000_000_000
