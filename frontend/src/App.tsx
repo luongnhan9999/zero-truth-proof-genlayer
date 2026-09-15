@@ -1599,6 +1599,32 @@ export default function App() {
               </button>
             </div>
 
+            <div className="mb-3 p-2.5 bg-purple-950/40 border border-purple-800/60 rounded flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-bold text-purple-200 block">⚡ Quick Test: 10 GEN Dispute Escrow</span>
+                <span className="text-[10px] text-slate-400">Pre-fills all fields with valid R1CS artifact & 10 GEN escrow</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setNewProjectName('Dispute & Arbitration Test');
+                  setNewTaskId('zk_dispute_10gen_' + Math.floor(100 + Math.random() * 900));
+                  setNewCircuitUrl('https://raw.githubusercontent.com/luongnhan9999/zero-truth-proof-genlayer/main/circuits/Multiplier2.r1cs.json');
+                  setNewCircuitHash('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+                  setNewFramework('Circom 2.1');
+                  setNewCompilerVersion('v2.1.6');
+                  setNewProvingSystem('Groth16');
+                  setNewComplexity('1 constraint (R1CS artifact)');
+                  setNewFocus('Arbitration soundness check');
+                  setNewEscrowAmount('10');
+                  setNewSourceCommit('857e022');
+                }}
+                className="px-2.5 py-1 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-bold text-[10px] rounded transition shadow cursor-pointer"
+              >
+                Load 10 GEN Preset
+              </button>
+            </div>
+
             <form onSubmit={handleCreateBounty} className="flex flex-col gap-4 text-xs font-mono">
               <div className="grid grid-cols-2 gap-3">
                 <div>
