@@ -102,7 +102,7 @@ export default function App() {
   const [newComplexity, setNewComplexity] = useState('15k constraints');
   const [newFocus, setNewFocus] = useState('');
   const [newEscrowAmount, setNewEscrowAmount] = useState('10'); // In GEN
-  const [newSourceCommit, setNewSourceCommit] = useState('98a1ec2943b89007505c9149ed4bccf2e0100a83');
+  const [newSourceCommit, setNewSourceCommit] = useState('e21e83c3d51abc753f17dfac79fa8031ed855079');
 
   // Auto-generate task ID from Project Name
   useEffect(() => {
@@ -1671,14 +1671,14 @@ export default function App() {
                   setNewProjectName('Dispute & Arbitration Test');
                   setNewTaskId('zk_dispute_10gen_' + Math.floor(100 + Math.random() * 900));
                   setNewCircuitUrl('https://raw.githubusercontent.com/luongnhan9999/zero-truth-proof-genlayer/main/circuits/Multiplier2.r1cs.json');
-                  setNewCircuitHash('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+                  setNewCircuitHash('eff4dd2e79b76493347d26eba309301a698964b080a658cd4c66295c5b13ea94');
                   setNewFramework('Circom 2.1');
                   setNewCompilerVersion('v2.1.6');
                   setNewProvingSystem('Groth16');
                   setNewComplexity('1 constraint (R1CS artifact)');
                   setNewFocus('Arbitration soundness check');
                   setNewEscrowAmount('10');
-                  setNewSourceCommit('98a1ec2943b89007505c9149ed4bccf2e0100a83');
+                  setNewSourceCommit('e21e83c3d51abc753f17dfac79fa8031ed855079');
                 }}
                 className="px-2.5 py-1 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-bold text-[10px] rounded transition shadow cursor-pointer"
               >

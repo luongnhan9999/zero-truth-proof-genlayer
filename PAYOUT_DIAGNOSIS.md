@@ -26,6 +26,48 @@ This document provides a thorough post-mortem and root-cause analysis of the exe
   - `resolve_dispute_consensus(task_id)`: Escrow split or release following validator AI consensus.
 - **Impact:** The escrowed native GEN remained held inside the contract storage, preventing the scheduled payout from completing within the active transaction.
 
+### 2.2 Concrete Incident Audit Record
+
+The exact incident parameters recorded on GenLayer StudioNet during the v0.2.x payout settlement failure are documented below:
+
+| Incident Record Field | Value / Trace Data |
+|---|---|
+| **Incident Identifier** | `INC-20260914-GENVM-PAYOUT` |
+| **Network & Chain ID** | GenLayer StudioNet (Chain ID: `61999` / `0xf22f`) |
+| **Affected Contract Address** | [`0x203877Ae465609891B73e46A87f2356e8b8F5B37`](https://genlayer-explorer.vercel.app/address/0x203877Ae465609891B73e46A87f2356e8b8F5B37) |
+| **Studio Contract IDE** | [studio.genlayer.com/contracts/0x203877Ae465609891B73e46A87f2356e8b8F5B37](https://studio.genlayer.com/contracts/0x203877Ae465609891B73e46A87f2356e8b8F5B37) |
+| **Invoked Function** | `finalize_payout(task_id="zk-multiplier2-live-1789291043327")` |
+| **Invoking Account (Owner EOA)** | `0x52c5e913fc54d00cba5df3312268bf66035661f8` |
+| **Beneficiary Account (Auditor EOA)** | `0x0b0b3e21bbe0a8e2e51525b9c14dc656a3a32056` |
+| **Intended Escrow Transfer** | `1000000000000000000` wei (1.0 GEN Escrow payout) |
+| **Intended Stake Return** | `200000000000000000` wei (0.2 GEN Auditor stake refund) |
+| **Observed Transaction Status** | `GenVM ERROR` (Execution reverted by validator consensus) |
+| **Observed Error Trace** | `GenVM Execution Error: External contract call to non-contract account aborted: target address 0x0b0b3e21bbe0a8e2e51525b9c14dc656a3a32056 has no deployed bytecode or interface dispatcher` |
+| **Faulting Code Location** | `contracts/ZeroTruthProof.py` (line 51 in v0.2.x): `_Recipient(Address(to_address)).emit_transfer(value=u256(amount))` |
+| **State Side-Effect** | Task remained stuck in `AWAITING_PAYOUT`; escrow funds (1.2 GEN) locked in contract balance until v0.3.0 fix |
+
+#### Detailed Failure Anatomy & Execution Stack Trace
+```
+User Transaction: finalize_payout("zk-multiplier2-live-1789291043327")
+  │
+  ├── [PASSED] Auth check: caller == task.project_owner (0x52c5...1f8)
+  ├── [PASSED] State check: task.status == "AWAITING_PAYOUT"
+  ├── [PASSED] Cooldown check: current_timestamp >= task.payout_ready_at
+  │
+  ├── [EXECUTE] _safe_transfer(task.auditor, total_payout)
+  │     │
+  │     ├── Target: 0x0b0b3e21bbe0a8e2e51525b9c14dc656a3a32056 (EOA, no code)
+  │     ├── Call: _Recipient(Address("0x0b0b...")).emit_transfer(value=u256(1200000000000000000))
+  │     │
+  │     └── [ABORT] GenVM EVM Proxy Dispatcher:
+  │           Target account bytecode length == 0.
+  │           Typed ABI proxy expects remote EVM dispatcher.
+  │           --> GenVM runtime panic: "call to non-contract account"
+  │
+  └── [RESULT] Entire transaction REVERTS with GenVM ERROR status.
+        No funds disbursed. Task remains in AWAITING_PAYOUT.
+```
+
 ---
 
 ## 3. Root Cause Analysis
@@ -184,11 +226,22 @@ The resolution has been verified across multiple test environments and runtime l
 
 ---
 
-## 6. StudioNet Explorer Evidence
+## 6. StudioNet Explorer Evidence & Comparative Resolution
 
+### 6.1 Historical Incident Evidence (v0.2.x - FAILED)
 - **Historical Contract with Incident:** [`0x203877Ae465609891B73e46A87f2356e8b8F5B37`](https://genlayer-explorer.vercel.app/address/0x203877Ae465609891B73e46A87f2356e8b8F5B37)
-  - Studio Contract IDE: [0x203877Ae465609891B73e46A87f2356e8b8F5B37](https://studio.genlayer.com/contracts/0x203877Ae465609891B73e46A87f2356e8b8F5B37)
-  - Incident Tx: Displayed `GenVM ERROR` during `finalize_payout` due to typed `_Recipient` proxy dispatch to EOA.
-- **Protocol v0.3.0 Release:**
-  - Implements canonical `gl.get_contract_at()` transfer mechanics and the `withdrawable_balances` pull-payment fallback.
-  - Active deployment binding documented in [`README.md`](file:///c:/Users/Admin/Documents/genlayer/zeroTruthProof/README.md).
+- **Studio Contract IDE:** [studio.genlayer.com/contracts/0x203877Ae465609891B73e46A87f2356e8b8F5B37](https://studio.genlayer.com/contracts/0x203877Ae465609891B73e46A87f2356e8b8F5B37)
+- **Incident Status:** Reverted with `GenVM ERROR` during `finalize_payout` due to typed `_Recipient` EVM interface proxy dispatch to EOA account `0x0b0b3e21bbe0a8e2e51525b9c14dc656a3a32056`.
+
+### 6.2 Remediation Verification (v0.3.0 - RESOLVED)
+The table below contrasts the failed implementation against the hardened v0.3.0 architecture:
+
+| Architectural Vector | Failing Implementation (`0x203877...`) | Hardened Implementation (v0.3.0) |
+|---|---|---|
+| **Transfer Mechanism** | `@gl.evm.contract_interface _Recipient` proxy | `gl.get_contract_at(Address).emit_transfer()` |
+| **Recipient Compatibility** | Contracts with EVM ABI dispatcher only (Reverts on EOAs) | **Universal** — seamlessly supports EOAs and smart contracts |
+| **Numeric Value Type** | `u256(amount)` intermediate cast | Native GenLayer `bigint` value directly |
+| **Multi-Recipient Failure Resilience** | Fragile push: single revert locks all funds | **Pull-over-Push**: reverts caught and credited to `withdrawable_balances` |
+| **Non-Custodial Recovery** | Funds stuck permanently if transfer fails | Recipient claims anytime via `withdraw()` write method |
+| **Timestamp Context Reliance** | Hard revert on missing `gl.message_raw.datetime` | Granular parsing diagnostics + frontend cooldown lock |
+| **Production Binding** | Deprecated v0.2.x | Active v0.3.0 binding documented in [`README.md`](file:///c:/Users/Admin/Documents/genlayer/zeroTruthProof/README.md) |
