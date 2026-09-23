@@ -12,7 +12,7 @@ except NameError:
         pass
 
 # SOURCE_REPO: https://github.com/luongnhan9999/zero-truth-proof-genlayer
-# SOURCE_COMMIT: e21e83c3d51abc753f17dfac79fa8031ed855079
+# SOURCE_COMMIT: 03667027c4d0a14c7ee95d63e93f70e9e92e18f1
 
 @allow_storage
 @dataclass

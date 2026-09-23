@@ -102,7 +102,7 @@ export default function App() {
   const [newComplexity, setNewComplexity] = useState('15k constraints');
   const [newFocus, setNewFocus] = useState('');
   const [newEscrowAmount, setNewEscrowAmount] = useState('10'); // In GEN
-  const [newSourceCommit, setNewSourceCommit] = useState('e21e83c3d51abc753f17dfac79fa8031ed855079');
+  const [newSourceCommit, setNewSourceCommit] = useState('03667027c4d0a14c7ee95d63e93f70e9e92e18f1');
 
   // Auto-generate task ID from Project Name
   useEffect(() => {
@@ -1678,7 +1678,7 @@ export default function App() {
                   setNewComplexity('1 constraint (R1CS artifact)');
                   setNewFocus('Arbitration soundness check');
                   setNewEscrowAmount('10');
-                  setNewSourceCommit('e21e83c3d51abc753f17dfac79fa8031ed855079');
+                  setNewSourceCommit('03667027c4d0a14c7ee95d63e93f70e9e92e18f1');
                 }}
                 className="px-2.5 py-1 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-bold text-[10px] rounded transition shadow cursor-pointer"
               >
