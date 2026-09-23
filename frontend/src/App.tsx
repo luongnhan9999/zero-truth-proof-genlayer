@@ -56,12 +56,15 @@ export default function App() {
   const [selectedRole, setSelectedRole] = useState<'OWNER' | 'AUDITOR'>('OWNER');
   
   // Smart Contract Info (Default authoritative v0.3.0 deployed contract on StudioNet)
-  const DEFAULT_CONTRACT_ADDRESS = '0xA7325A3633AF71201DC0538BB7B7871734c855Eb';
+  const DEFAULT_CONTRACT_ADDRESS = '0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3';
   const [contractAddress, setContractAddressState] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('ztp_contract_address');
       if (saved && saved.startsWith('0x') && saved.length === 42) {
-        if (saved.toLowerCase() === '0x203877ae465609891b73e46a87f2356e8b8f5b37'.toLowerCase()) {
+        if (
+          saved.toLowerCase() === '0x203877ae465609891b73e46a87f2356e8b8f5b37'.toLowerCase() ||
+          saved.toLowerCase() === '0xa7325a3633af71201dc0538bb7b7871734c855eb'.toLowerCase()
+        ) {
           localStorage.setItem('ztp_contract_address', DEFAULT_CONTRACT_ADDRESS);
           return DEFAULT_CONTRACT_ADDRESS;
         }

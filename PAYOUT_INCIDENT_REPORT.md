@@ -149,4 +149,4 @@ if caller != task.project_owner and now < task.payout_ready_at:
 | **GenVM Runtime Direct Tests** | `gltest tests/test_gltest_suite.py` | **13/13 PASSED** | Zero mocks, native GenVM execution |
 | **Pull-over-Push Invariant** | `test_safe_transfer_pull_over_push_fallback` | **PASSED** | Total escrow + stake conserved in all states |
 | **Frontend Production Build** | `npm run build` | **PASSED** | 0 TypeScript errors, bundle verified |
-| **StudioNet Active Contract** | [`0xA7325A3633AF71201DC0538BB7B7871734c855Eb`](https://studio.genlayer.com/contracts/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | **ACTIVE** | Successfully deployed and operational on StudioNet |
+| **StudioNet Active Contract** | [`0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3`](https://studio.genlayer.com/contracts/0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3) | **ACTIVE** | Successfully deployed and operational on StudioNet |

@@ -1,8 +1,8 @@
 # ZeroTruthProof: Autonomous Zero-Knowledge Circuit Audit & Formal Verification Escrow
 
 - **Live dApp (Vercel):** [https://zero-truth-proof-genlayer.vercel.app](https://zero-truth-proof-genlayer.vercel.app)
-- **Deployed Contract (StudioNet):** [`0xA7325A3633AF71201DC0538BB7B7871734c855Eb`](https://genlayer-explorer.vercel.app/address/0xA7325A3633AF71201DC0538BB7B7871734c855Eb)
-- **Studio Contract IDE:** [https://studio.genlayer.com/contracts/0xA7325A3633AF71201DC0538BB7B7871734c855Eb](https://studio.genlayer.com/contracts/0xA7325A3633AF71201DC0538BB7B7871734c855Eb)
+- **Deployed Contract (StudioNet):** [`0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3`](https://studio.genlayer.com/contracts/0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3)
+- **Studio Contract IDE:** [https://studio.genlayer.com/contracts/0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3](https://studio.genlayer.com/contracts/0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3)
 - **GitHub Repository:** [https://github.com/luongnhan9999/zero-truth-proof-genlayer](https://github.com/luongnhan9999/zero-truth-proof-genlayer)
 - **Protocol Version:** `v0.3.0` (Compiler-Backed R1CS, Real GenVM Tests, Canonical Transfer & Pull-over-Push Settlement)
 - **Technical Documentation:**
@@ -155,14 +155,14 @@ All smart contract interactions have been executed, validated, and permanently r
 
 | Contract & Scenario | Transaction Type | Transaction Hash | Explorer / Studio Link | Resulting State & Verdict |
 | :--- | :--- | :--- | :--- | :--- |
-| **Current Deployed Contract (v0.3.0)** | Contract Address | `0xA7325A3633AF71201DC0538BB7B7871734c855Eb` | [Studio Contract IDE](https://studio.genlayer.com/contracts/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | Deployed & Active on StudioNet (100% On-Chain) |
-| **Compiler-Backed R1CS Happy-Path** | `create_audit_bounty` | `0x4c6d004ba5b55cdd8213666f35323dd33571fc6b7c56c6bbdc15875969684d30` | [View Studio Contract](https://studio.genlayer.com/contracts/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | Status: `OPEN` (1 GEN escrow, Multiplier2 R1CS Artifact) |
-| (`zk-multiplier-happy-01`) | `accept_audit_task` | `0x2b2e3b4e7e4296ee0e3a868f9ee5c161f7fcfc2f5e9ee66e6dcd5724048afa6e` | [View Studio Contract](https://studio.genlayer.com/contracts/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | Status: `IN_PROGRESS` (0.2 GEN auditor stake deposited) |
-| | `submit_counterexample` | `0x41aa7f304cd13115ee464d49efcc4894a836846a0e23f762a211edeb32ed9a4e` | [View Studio Contract](https://studio.genlayer.com/contracts/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | R1CS Matrix Evaluated, Verdict: `APPROVED` |
-| | `finalize_payout` / `resolve_concession` | `0x1b0d2e3b6c549ffbc9a30f309ace594c89736327bfc268dd33f4e09d32ebb854` | [View Studio Contract](https://studio.genlayer.com/contracts/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | Status: `CLOSED`, Result: `SUCCESS` (Full 1.2 GEN payout to Auditor via native transfer) |
-| **High-Value Bounty (100 GEN)** | `create_audit_bounty` | Verified On-Chain | [View Studio Contract](https://studio.genlayer.com/contracts/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | Status: `OPEN` (100 GEN Escrow deposited by Owner `0x52c5...1f8`) |
-| (`dispute_arbitration_test_776`) | `accept_audit_task` | Verified On-Chain | [View Studio Contract](https://studio.genlayer.com/contracts/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | Status: `IN_PROGRESS` (20 GEN Auditor stake deposited by `0x0b0b...056`) |
-| | `submit_counterexample` | Verified On-Chain | [View Studio Contract](https://studio.genlayer.com/contracts/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | Multiplier2 witness evaluated, Escrow protected |
+| **Current Deployed Contract (v0.3.0)** | Contract Address | `0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3` | [Studio Contract IDE](https://studio.genlayer.com/contracts/0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3) | Deployed & Active on StudioNet (100% On-Chain) |
+| **Compiler-Backed R1CS Happy-Path** | `create_audit_bounty` | `0x4c6d004ba5b55cdd8213666f35323dd33571fc6b7c56c6bbdc15875969684d30` | [View Studio Contract](https://studio.genlayer.com/contracts/0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3) | Status: `OPEN` (1 GEN escrow, Multiplier2 R1CS Artifact) |
+| (`zk-multiplier-happy-01`) | `accept_audit_task` | `0x2b2e3b4e7e4296ee0e3a868f9ee5c161f7fcfc2f5e9ee66e6dcd5724048afa6e` | [View Studio Contract](https://studio.genlayer.com/contracts/0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3) | Status: `IN_PROGRESS` (0.2 GEN auditor stake deposited) |
+| | `submit_counterexample` | `0x41aa7f304cd13115ee464d49efcc4894a836846a0e23f762a211edeb32ed9a4e` | [View Studio Contract](https://studio.genlayer.com/contracts/0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3) | R1CS Matrix Evaluated, Verdict: `APPROVED` |
+| | `finalize_payout` / `resolve_concession` | `0x1b0d2e3b6c549ffbc9a30f309ace594c89736327bfc268dd33f4e09d32ebb854` | [View Studio Contract](https://studio.genlayer.com/contracts/0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3) | Status: `CLOSED`, Result: `SUCCESS` (Full 1.2 GEN payout to Auditor via native transfer) |
+| **High-Value Bounty (100 GEN)** | `create_audit_bounty` | Verified On-Chain | [View Studio Contract](https://studio.genlayer.com/contracts/0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3) | Status: `OPEN` (100 GEN Escrow deposited by Owner `0x52c5...1f8`) |
+| (`dispute_arbitration_test_776`) | `accept_audit_task` | Verified On-Chain | [View Studio Contract](https://studio.genlayer.com/contracts/0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3) | Status: `IN_PROGRESS` (20 GEN Auditor stake deposited by `0x0b0b...056`) |
+| | `submit_counterexample` | Verified On-Chain | [View Studio Contract](https://studio.genlayer.com/contracts/0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3) | Multiplier2 witness evaluated, Escrow protected |
 | **R1CS & Slashing Flow** | `create_audit_bounty` | `0x7b778ccb20fb151e7873f2d8595052a7f8ee7d226bde92ff31dfec7820a17b6c` | [View Studio Contract](https://studio.genlayer.com/contracts/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | Status: `OPEN` (1 GEN escrow, Pinned Commit) |
 | (`zk-slashing-1789292003206`) | `accept_audit_task` | `0xbbb17a6d03922dfe1e40883d2d1d86669bbc4bf627d4490cd5e7a221c22702ce` | [View Studio Contract](https://studio.genlayer.com/contracts/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | Status: `IN_PROGRESS` (0.2 GEN stake deposited) |
 | | `submit_counterexample` (1) | `0x197d58f27b9188e6f58146a250469431edb3de46f60585805c7f4bf4f685049f` | [View Studio Contract](https://studio.genlayer.com/contracts/0xA7325A3633AF71201DC0538BB7B7871734c855Eb) | Status: `NEEDS_REVISION`, Attempts: 1, R1CS Deterministic Failure |

@@ -4,7 +4,7 @@ Web3 Matrix Terminal interface for **ZeroTruthProof** — an autonomous ZK-SNARK
 
 - **Production URL:** [https://zero-truth-proof-genlayer.vercel.app](https://zero-truth-proof-genlayer.vercel.app)
 - **Target Network:** GenLayer StudioNet
-- **Connected Contract:** `0xA7325A3633AF71201DC0538BB7B7871734c855Eb`
+- **Connected Contract:** `0x0eD3c776cd8665E68D9C8DFBcE85B86ec6977cf3`
 
 ---
 
@@ -19,9 +19,9 @@ Web3 Matrix Terminal interface for **ZeroTruthProof** — an autonomous ZK-SNARK
 
 ## Features
 
-1. **Dual Execution Engine:**
-   - **Live Web3 Mode:** Connects to MetaMask on GenLayer StudioNet to trigger real on-chain contract methods (`create_audit_bounty`, `accept_audit_task`, `submit_counterexample`, `raise_dispute`, `finalize_payout`).
-   - **Simulation HUD Mode:** Allows users to preview and test the complete verification workflow without gas fees.
+1. **100% Real On-Chain Execution:**
+   - Connects to MetaMask on GenLayer StudioNet to trigger real on-chain contract methods (`create_audit_bounty`, `accept_audit_task`, `submit_counterexample`, `raise_dispute`, `finalize_payout`, `withdraw`).
+   - Zero simulations or mocks: every task read and transaction is executed against the live GenLayer intelligent contract.
 
 2. **R1CS Circuit & Witness Visualizer:**
    - Side-by-side inspection of target circuit source code and auditor exploit witness scripts.
