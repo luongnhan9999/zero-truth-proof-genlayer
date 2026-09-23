@@ -1243,8 +1243,8 @@ Respond ONLY with valid JSON:
             raise UserError("Unauthorized caller")
 
         now = self._get_current_timestamp()
-        if now < task.payout_ready_at:
-            raise UserError("24-hour cooling-off period has not elapsed yet")
+        if caller != task.project_owner and now < task.payout_ready_at:
+            raise UserError("24-hour cooling-off period has not elapsed yet (only project owner can finalize early)")
 
         escrow = task.escrow_amount
         stake = task.auditor_stake

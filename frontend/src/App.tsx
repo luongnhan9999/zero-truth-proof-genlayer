@@ -1357,13 +1357,13 @@ export default function App() {
                               <AlertTriangle className="w-4 h-4 text-rose-400" /> Raise Dispute
                             </button>
                             
-                            {/* Finalize button - only available if time expired */}
+                            {/* Finalize button - owner can finalize early, auditor must wait */}
                             <button
                               type="button"
                               onClick={handleFinalizePayout}
-                              disabled={isLoading || !walletConnected || (timeRemaining[activeTask.id] !== 0)}
+                              disabled={isLoading || !walletConnected || (!isOwner && timeRemaining[activeTask.id] !== 0)}
                               className="px-4 py-2 bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 hover:border-emerald-600 text-emerald-200 rounded font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
-                              title={timeRemaining[activeTask.id] !== 0 ? "Cooling off period must elapse first" : ""}
+                              title={isOwner ? "Project Owner: Immediate Payout Finalization" : (timeRemaining[activeTask.id] !== 0 ? "Cooling off period must elapse first" : "")}
                             >
                               <CheckCircle className="w-4 h-4 text-emerald-400" /> Finalize Payout
                             </button>

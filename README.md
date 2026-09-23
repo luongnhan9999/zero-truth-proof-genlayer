@@ -6,6 +6,7 @@
 - **GitHub Repository:** [https://github.com/luongnhan9999/zero-truth-proof-genlayer](https://github.com/luongnhan9999/zero-truth-proof-genlayer)
 - **Protocol Version:** `v0.3.0` (Compiler-Backed R1CS, Real GenVM Tests, Canonical Transfer & Pull-over-Push Settlement)
 - **Technical Documentation:**
+  - [PAYOUT_INCIDENT_REPORT.md](./PAYOUT_INCIDENT_REPORT.md) — Concrete Incident Post-Mortem & Telemetry Audit Log
   - [PAYOUT_DIAGNOSIS.md](./PAYOUT_DIAGNOSIS.md) — Root-Cause Analysis of Payout GenVM ERROR & Architectural Fix
   - [circuits/COMPILER_WORKFLOW.md](./circuits/COMPILER_WORKFLOW.md) — Compiler-Backed R1CS Artifact Verification Pipeline
 
